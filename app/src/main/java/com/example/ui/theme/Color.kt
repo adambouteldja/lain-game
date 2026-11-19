@@ -8,6 +8,9 @@ val WiredAbyss = Color(0xFF0E1422)
 val WiredSurface = Color(0xFF151E32)
 val WiredSurfaceHigh = Color(0xFF1E2B45)
 val WiredBorder = Color(0xFF2B3D60)
+val VoidBg = WiredVoid
+val VoidSurface = WiredSurface
+val VoidSurfaceElevated = WiredSurfaceHigh
 
 // Accent Phosphors
 val NaviCyan = Color(0xFF64F0FF)

@@ -1,6 +1,6 @@
 {
-  "name": "LAIN: Beyond Reality",
-  "description": "A 2D side-scrolling physics puzzle adventure featuring Lain Iwakura, drawing studio, Judo balance challenges, and a mysterious digital atmosphere.",
+  "name": "LAIN",
+  "description": "LAIN: Evolution 2.0 — A 2D side-scrolling physics adventure, personal digital world, professional drawing studio, Judo balance dojo, Physics Sandbox, Navi Desktop, and SM University Physics Lab architecture.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,6 +29,7 @@ fun WorldsScreen(
     progress: SaveProgress,
     onSelectLevel: (String) -> Unit,
     onOpenSketchbook: () -> Unit,
+    onOpenSandbox: () -> Unit,
     onOpenJudoTrial: (JudoTrialId) -> Unit,
     onBack: () -> Unit
 ) {
@@ -115,13 +115,14 @@ fun WorldsScreen(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f)
                                 ) {
                                     Icon(
                                         imageVector = worldIcon(worldId),
                                         contentDescription = null,
                                         tint = if (unlocked) accent else TextMuted,
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(22.dp)
                                     )
                                     Text(
                                         text = strings.worldNames[worldId] ?: worldId.name,
@@ -129,6 +130,17 @@ fun WorldsScreen(
                                         color = if (unlocked) TextPrimary else TextMuted,
                                         fontWeight = FontWeight.Bold
                                     )
+                                    Surface(
+                                        color = if (worldId.isCanonLocation) NaviCyan.copy(alpha = 0.16f) else DeskAmber.copy(alpha = 0.16f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = if (worldId.isCanonLocation) strings.canonTag else strings.originalTag,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (worldId.isCanonLocation) NaviCyan else DeskAmber,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
                                 }
                                 if (!unlocked) {
                                     Row(
@@ -233,7 +245,22 @@ fun WorldsScreen(
                                 }
                             }
 
-                            // Creation World independent studio shortcut
+                            // Gravity World shortcut to Physics Sandbox
+                            if (worldId == WorldId.GRAVITY) {
+                                OutlinedButton(
+                                    onClick = onOpenSandbox,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .testTag("worlds_open_sandbox")
+                                ) {
+                                    Icon(Icons.Default.Science, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(strings.openSandbox)
+                                }
+                            }
+
+                            // Creation World independent Drawing Studio shortcut
                             if (worldId == WorldId.CREATION) {
                                 OutlinedButton(
                                     onClick = onOpenSketchbook,
@@ -248,7 +275,7 @@ fun WorldsScreen(
                                 }
                             }
 
-                            // Balance World standalone Dojo Trials access
+                            // Balance World standalone 4-Trial Black-Belt Judo Dojo access
                             if (worldId == WorldId.BALANCE) {
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text(
@@ -264,7 +291,7 @@ fun WorldsScreen(
                                             val done = trial in progress.completedJudoTrials
                                             OutlinedButton(
                                                 onClick = { onOpenJudoTrial(trial) },
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
                                                 modifier = Modifier
                                                     .weight(1f)
                                                     .heightIn(min = 48.dp)
@@ -289,6 +316,10 @@ fun WorldsScreen(
 
 private fun worldAccent(worldId: WorldId): Color = when (worldId) {
     WorldId.LAINS_ROOM -> DeskAmber
+    WorldId.FAMILY_HOME -> DeskAmber
+    WorldId.SCHOOL -> HarmonyJade
+    WorldId.STREETS -> NaviCyan
+    WorldId.CYBERIA -> SignalCoral
     WorldId.GRAVITY -> WiredViolet
     WorldId.CREATION -> NaviCyan
     WorldId.ENERGY -> DeskAmber
@@ -298,6 +329,10 @@ private fun worldAccent(worldId: WorldId): Color = when (worldId) {
 
 private fun worldIcon(worldId: WorldId) = when (worldId) {
     WorldId.LAINS_ROOM -> Icons.Default.Computer
+    WorldId.FAMILY_HOME -> Icons.Default.Home
+    WorldId.SCHOOL -> Icons.Default.School
+    WorldId.STREETS -> Icons.Default.LocationCity
+    WorldId.CYBERIA -> Icons.Default.MusicNote
     WorldId.GRAVITY -> Icons.Default.SwapVert
     WorldId.CREATION -> Icons.Default.Brush
     WorldId.ENERGY -> Icons.Default.Bolt

@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "LAIN Beyond Reality"
+rootProject.name = "LAIN"
 
 include(":app")

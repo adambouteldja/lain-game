@@ -1,7 +1,10 @@
 package com.example.game.model
 
 import com.example.data.JudoTrialId
+import com.example.data.LainOutfit
 import com.example.data.WorldId
+import kotlin.math.abs
+import kotlin.math.tan
 
 data class Vec2(val x: Float = 0f, val y: Float = 0f) {
     operator fun plus(o: Vec2) = Vec2(x + o.x, y + o.y)
@@ -55,7 +58,7 @@ data class Platform(
     // Hard-light conditional bridge
     val linkedSignalId: String? = null,
     val isSolidActive: Boolean = true,
-    // Tilting balance beam state
+    // Tilting balance beam & sloped drawn ink state
     val tiltAngleDeg: Float = 0f,
     val tiltAngularVel: Float = 0f
 ) {
@@ -66,12 +69,15 @@ data class Platform(
 
     fun bounds(): RectBounds = RectBounds(x, y, width, height)
 
+    fun isSlopedSurface(): Boolean =
+        type == PlatformType.TILTING_BEAM || (type == PlatformType.DRAWN_INK && abs(tiltAngleDeg) > 0.5f)
+
     fun surfaceYAt(worldX: Float): Float {
-        if (type != PlatformType.TILTING_BEAM) return y
+        if (!isSlopedSurface()) return y
         val pivotX = x + width * 0.5f
         val rad = Math.toRadians(tiltAngleDeg.toDouble())
         val dx = (worldX - pivotX).coerceIn(-width * 0.5f, width * 0.5f)
-        return y + (dx * kotlin.math.tan(rad)).toFloat()
+        return y + (dx * tan(rad)).toFloat()
     }
 }
 
@@ -145,7 +151,7 @@ data class MirrorNode(
     val x: Float,
     val y: Float,
     val radius: Float = 26f,
-    /** Angle index 0..7 in 45-degree increments for mirror normal/surface */
+    /** Angle index 0..7 in 45-degree increments for mirror reflection direction */
     val angleStep: Int = 1
 ) {
     fun bounds(): RectBounds = RectBounds(x - radius, y - radius, radius * 2f, radius * 2f)
@@ -225,6 +231,20 @@ data class JudoShrine(
     fun bounds(): RectBounds = RectBounds(x - 32f, y - 74f, 64f, 74f)
 }
 
+data class StoryNpc(
+    val id: String,
+    val x: Float,
+    val y: Float,
+    val nameKey: String,
+    val dialogueKey: String,
+    val isCanon: Boolean = true,
+    val outfitColorArgb: Long = 0xFF424752L,
+    val hairColorArgb: Long = 0xFF1F2429L,
+    val opensDesktop: Boolean = false
+) {
+    fun bounds(): RectBounds = RectBounds(x - 24f, y - 68f, 48f, 68f)
+}
+
 data class PortalExit(
     val x: Float,
     val y: Float,
@@ -237,9 +257,18 @@ data class PortalExit(
 enum class LainAnimState {
     IDLE,
     WALKING,
+    RUNNING,
     JUMPING,
     FALLING,
+    LANDING,
     INTERACTING
+}
+
+enum class LainExpression {
+    NEUTRAL,
+    CURIOUS,
+    FOCUSED,
+    HAPPY
 }
 
 data class PlayerState(
@@ -255,8 +284,11 @@ data class PlayerState(
     val coyoteTimer: Float = 0f,
     val jumpBufferTimer: Float = 0f,
     val interactTimer: Float = 0f,
+    val landingTimer: Float = 0f,
     val animTime: Float = 0f,
     val animState: LainAnimState = LainAnimState.IDLE,
+    val expression: LainExpression = LainExpression.NEUTRAL,
+    val outfit: LainOutfit = LainOutfit.HOME_SWEATER,
     val currentSurfaceType: PlatformType = PlatformType.SOLID
 ) {
     fun bounds(): RectBounds = RectBounds(x, y, width, height)
@@ -276,6 +308,7 @@ data class Particle(
 data class InputState(
     val moveLeft: Boolean = false,
     val moveRight: Boolean = false,
+    val analogX: Float = 0f, // Smooth virtual joystick axis (-1f..1f)
     val jumpPressed: Boolean = false,
     val jumpJustPressed: Boolean = false,
     val interactJustPressed: Boolean = false
@@ -293,7 +326,9 @@ enum class GameEvent {
     DOOR_OPENED,
     RESPAWNED,
     LEVEL_COMPLETED,
-    INK_PLATFORM_CREATED
+    INK_PLATFORM_CREATED,
+    NPC_TALKED,
+    DESKTOP_OPENED
 }
 
 data class LevelDefinition(
@@ -316,6 +351,7 @@ data class LevelDefinition(
     val checkpoints: List<Checkpoint> = emptyList(),
     val hazards: List<HazardZone> = emptyList(),
     val judoShrines: List<JudoShrine> = emptyList(),
+    val npcs: List<StoryNpc> = emptyList(),
     val exit: PortalExit
 )
 
@@ -343,6 +379,8 @@ data class LevelRuntimeState(
     val isCompleted: Boolean = false,
     val nearbyInteractLabel: String? = null,
     val pendingJudoTrial: JudoTrialId? = null,
+    val activeDialogueNpc: StoryNpc? = null,
+    val requestOpenDesktop: Boolean = false,
     val statusBannerKey: String? = null,
     val statusBannerTimer: Float = 0f,
     val events: List<GameEvent> = emptyList()

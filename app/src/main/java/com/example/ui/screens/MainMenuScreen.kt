@@ -19,7 +19,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.data.GameSettings
 import com.example.data.SaveProgress
+import com.example.game.engine.LevelCatalog
 import com.example.game.render.LainsRoomBackdrop
 import com.example.i18n.LocalStrings
 import com.example.ui.theme.*
@@ -27,15 +29,21 @@ import com.example.ui.theme.*
 @Composable
 fun MainMenuScreen(
     progress: SaveProgress,
+    settings: GameSettings,
     onContinue: () -> Unit,
     onNewGame: () -> Unit,
     onSketchbook: () -> Unit,
     onWorlds: () -> Unit,
+    onDesktop: () -> Unit,
+    onSandbox: () -> Unit,
+    onPhysicsLab: () -> Unit,
     onAchievements: () -> Unit,
     onSettings: () -> Unit
 ) {
     val strings = LocalStrings.current
     var showNewGameDialog by remember { mutableStateOf(false) }
+    val totalLevels = LevelCatalog.allLevels.size
+    val totalShards = LevelCatalog.allLevels.sumOf { it.shards.size }
 
     BoxWithConstraints(
         modifier = Modifier
@@ -44,8 +52,11 @@ fun MainMenuScreen(
     ) {
         val isLandscape = maxWidth > maxHeight
 
-        // Animated Lain in her bedroom with her Navi computer
-        LainsRoomBackdrop(modifier = Modifier.fillMaxSize())
+        // Reference-reconstructed animated Lain's Room backdrop
+        LainsRoomBackdrop(
+            outfit = settings.preferredOutfit,
+            modifier = Modifier.fillMaxSize()
+        )
 
         // Atmospheric readability gradient scrim
         Box(
@@ -56,7 +67,7 @@ fun MainMenuScreen(
                         colors = listOf(
                             WiredVoid.copy(alpha = 0.65f),
                             Color.Transparent,
-                            WiredVoid.copy(alpha = 0.88f)
+                            WiredVoid.copy(alpha = 0.90f)
                         )
                     )
                 )
@@ -67,11 +78,10 @@ fun MainMenuScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                    .padding(horizontal = 24.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Left side: Title & atmospheric status
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -86,19 +96,18 @@ fun MainMenuScreen(
                     )
                     if (progress.hasStarted) {
                         Text(
-                            text = "${strings.shardsLabel}: ${progress.totalShardsCollected()} / 36  •  ${progress.completedLevels.size} / 12",
+                            text = "${strings.shardsLabel}: ${progress.totalShardsCollected()} / $totalShards  •  ${progress.completedLevels.size} / $totalLevels",
                             style = MaterialTheme.typography.labelLarge,
                             color = NaviCyan
                         )
                     }
                 }
 
-                // Right side: Compact Glass Menu Deck
                 Column(
                     modifier = Modifier
-                        .widthIn(min = 260.dp, max = 330.dp)
+                        .widthIn(min = 280.dp, max = 360.dp)
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     MenuButtonsList(
                         hasStarted = progress.hasStarted,
@@ -108,18 +117,20 @@ fun MainMenuScreen(
                         },
                         onSketchbook = onSketchbook,
                         onWorlds = onWorlds,
+                        onDesktop = onDesktop,
+                        onSandbox = onSandbox,
+                        onPhysicsLab = onPhysicsLab,
                         onAchievements = onAchievements,
                         onSettings = onSettings
                     )
                 }
             }
         } else {
-            // Portrait: Upper room scene unobstructed, lower crisp menu deck
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -131,7 +142,7 @@ fun MainMenuScreen(
                     )
                     if (progress.hasStarted) {
                         Text(
-                            text = "${strings.shardsLabel}: ${progress.totalShardsCollected()} / 36  •  ${progress.completedLevels.size} / 12",
+                            text = "${strings.shardsLabel}: ${progress.totalShardsCollected()} / $totalShards  •  ${progress.completedLevels.size} / $totalLevels",
                             style = MaterialTheme.typography.labelLarge,
                             color = NaviCyan
                         )
@@ -143,10 +154,10 @@ fun MainMenuScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .widthIn(max = 460.dp)
+                        .widthIn(max = 480.dp)
                         .align(Alignment.CenterHorizontally)
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     MenuButtonsList(
                         hasStarted = progress.hasStarted,
@@ -156,6 +167,9 @@ fun MainMenuScreen(
                         },
                         onSketchbook = onSketchbook,
                         onWorlds = onWorlds,
+                        onDesktop = onDesktop,
+                        onSandbox = onSandbox,
+                        onPhysicsLab = onPhysicsLab,
                         onAchievements = onAchievements,
                         onSettings = onSettings
                     )
@@ -214,6 +228,9 @@ private fun MenuButtonsList(
     onNewGameClick: () -> Unit,
     onSketchbook: () -> Unit,
     onWorlds: () -> Unit,
+    onDesktop: () -> Unit,
+    onSandbox: () -> Unit,
+    onPhysicsLab: () -> Unit,
     onAchievements: () -> Unit,
     onSettings: () -> Unit
 ) {
@@ -229,7 +246,7 @@ private fun MenuButtonsList(
         shape = RoundedCornerShape(14.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(50.dp)
             .testTag("menu_continue_button")
     ) {
         Icon(Icons.Default.PlayArrow, contentDescription = null)
@@ -241,20 +258,11 @@ private fun MenuButtonsList(
         )
     }
 
-    // Secondary row: New Game & Worlds
+    // Story & Worlds Row
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        MenuTileButton(
-            label = strings.menuNewGame,
-            icon = Icons.Default.Refresh,
-            accent = SignalCoral,
-            onClick = onNewGameClick,
-            modifier = Modifier
-                .weight(1f)
-                .testTag("menu_new_game_button")
-        )
         MenuTileButton(
             label = strings.menuWorlds,
             icon = Icons.Default.Public,
@@ -264,28 +272,76 @@ private fun MenuButtonsList(
                 .weight(1f)
                 .testTag("menu_worlds_button")
         )
+        MenuTileButton(
+            label = strings.menuNewGame,
+            icon = Icons.Default.Refresh,
+            accent = SignalCoral,
+            onClick = onNewGameClick,
+            modifier = Modifier
+                .weight(1f)
+                .testTag("menu_new_game_button")
+        )
     }
 
-    // Sketchbook (Standalone Drawing Studio)
-    MenuTileButton(
-        label = strings.menuSketchbook,
-        icon = Icons.Default.Brush,
-        accent = DeskAmber,
-        onClick = onSketchbook,
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("menu_sketchbook_button")
-    )
-
-    // Achievements & Settings
+    // Lain Desktop OS & Drawing Studio Row
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        MenuTileButton(
+            label = strings.menuDesktop,
+            icon = Icons.Default.Computer,
+            accent = NaviCyan,
+            onClick = onDesktop,
+            modifier = Modifier
+                .weight(1f)
+                .testTag("menu_desktop_button")
+        )
+        MenuTileButton(
+            label = strings.menuSketchbook,
+            icon = Icons.Default.Brush,
+            accent = DeskAmber,
+            onClick = onSketchbook,
+            modifier = Modifier
+                .weight(1f)
+                .testTag("menu_sketchbook_button")
+        )
+    }
+
+    // Physics Sandbox & University SM Physics Lab Row
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        MenuTileButton(
+            label = strings.menuSandbox,
+            icon = Icons.Default.Science,
+            accent = HarmonyJade,
+            onClick = onSandbox,
+            modifier = Modifier
+                .weight(1f)
+                .testTag("menu_sandbox_button")
+        )
+        MenuTileButton(
+            label = strings.menuPhysicsLab,
+            icon = Icons.Default.MenuBook,
+            accent = WiredViolet,
+            onClick = onPhysicsLab,
+            modifier = Modifier
+                .weight(1f)
+                .testTag("menu_physics_lab_button")
+        )
+    }
+
+    // Achievements & Settings Row
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         MenuTileButton(
             label = strings.menuAchievements,
             icon = Icons.Default.EmojiEvents,
-            accent = HarmonyJade,
+            accent = DeskAmber,
             onClick = onAchievements,
             modifier = Modifier
                 .weight(1f)
@@ -294,7 +350,7 @@ private fun MenuButtonsList(
         MenuTileButton(
             label = strings.menuSettings,
             icon = Icons.Default.Settings,
-            accent = WiredViolet,
+            accent = TextSecondary,
             onClick = onSettings,
             modifier = Modifier
                 .weight(1f)
@@ -314,16 +370,16 @@ private fun MenuTileButton(
     Surface(
         onClick = onClick,
         color = WiredSurface.copy(alpha = 0.88f),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(12.dp),
         modifier = modifier
-            .heightIn(min = 50.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, accent.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 10.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
@@ -331,12 +387,12 @@ private fun MenuTileButton(
                 imageVector = icon,
                 contentDescription = null,
                 tint = accent,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(18.dp)
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
             Text(
                 text = label,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.labelLarge,
                 color = TextPrimary,
                 maxLines = 1
             )

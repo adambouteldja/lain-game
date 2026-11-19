@@ -1,25 +1,43 @@
 package com.example.game.engine
 
 import com.example.data.JudoTrialId
+import com.example.data.LainOutfit
 import com.example.data.WorldId
 import com.example.game.model.*
 
 /**
- * Complete catalog of all 6 Worlds and 12 handcrafted, physics-verified levels.
+ * Complete Evolution 2.0 catalog of 10 Worlds and 16 handcrafted, physics-verified levels:
+ * - Preserves all 12 v1 levels ("1-1".."6-2") for 100% backward save compatibility
+ * - Fixes all 4 audited v1 level bugs (4-2, 6-1, 4-1, 2-2)
+ * - Adds 4 canonical Serial Experiments Lain exploration environments (H-1, S-1, C-1, Y-1)
  */
 object LevelCatalog {
 
     val allLevels: List<LevelDefinition> = listOf(
+        // World 1: Lain's Room (Canon)
         level1_1(),
         level1_2(),
+        // World 2: Iwakura Family Home (Canon)
+        levelH_1(),
+        // World 3: School (Canon)
+        levelS_1(),
+        // World 4: Suburban Streets & Powerlines (Canon)
+        levelC_1(),
+        // World 5: Cyberia Cafe & Club (Canon)
+        levelY_1(),
+        // World 6: Gravity (Original Physics Sector)
         level2_1(),
         level2_2(),
+        // World 7: Creation (Original Ink Physics Sector)
         level3_1(),
         level3_2(),
+        // World 8: Energy (Original Light & Magnetism Sector)
         level4_1(),
         level4_2(),
+        // World 9: Balance Dojo (Original Judo Sector)
         level5_1(),
         level5_2(),
+        // World 10: The Wired (Canon Digital Synthesis)
         level6_1(),
         level6_2()
     )
@@ -37,8 +55,16 @@ object LevelCatalog {
 
     fun worldForLevel(levelId: String): WorldId = levelById(levelId).worldId
 
+    fun defaultOutfitForWorld(worldId: WorldId): LainOutfit = when (worldId) {
+        WorldId.LAINS_ROOM, WorldId.FAMILY_HOME, WorldId.CREATION -> LainOutfit.HOME_SWEATER
+        WorldId.SCHOOL, WorldId.STREETS -> LainOutfit.SCHOOL_UNIFORM
+        WorldId.CYBERIA, WorldId.ENERGY -> LainOutfit.CYBERIA_JACKET
+        WorldId.BALANCE -> LainOutfit.JUDO_GI
+        WorldId.GRAVITY, WorldId.THE_WIRED -> LainOutfit.WIRED_CAMISOLE
+    }
+
     // =========================================================================
-    // WORLD 1: LAIN'S ROOM (Tutorial & Physical Introduction)
+    // WORLD 1: LAIN'S ROOM (Canon Hub & Tutorial + Interactive Navi Desk)
     // =========================================================================
 
     private fun level1_1() = LevelDefinition(
@@ -49,17 +75,25 @@ object LevelCatalog {
         worldHeight = 580f,
         spawn = Vec2(90f, 380f),
         platforms = listOf(
-            // Main bedroom floor
             Platform("f1", 0f, 470f, 540f, 110f),
-            // Gentle desk step-up
             Platform("desk", 320f, 395f, 160f, 24f),
-            // Gap of 110px (easy tutorial jump)
             Platform("f2", 650f, 470f, 830f, 110f),
-            // Raised shelf for Navi terminal & collectible
             Platform("shelf1", 720f, 385f, 180f, 24f),
             Platform("shelf2", 950f, 315f, 200f, 24f),
-            // Ceiling boundary wall above door so player must open the door
             Platform("wall_top", 1210f, 0f, 28f, 366f)
+        ),
+        npcs = listOf(
+            StoryNpc(
+                id = "navi_desk_1_1",
+                x = 400f,
+                y = 395f,
+                nameKey = "npc_navi_desk_name",
+                dialogueKey = "npc_navi_desk_line",
+                isCanon = true,
+                outfitColorArgb = 0xFF64F0FFL,
+                hairColorArgb = 0xFF151E32L,
+                opensDesktop = true
+            )
         ),
         switches = listOf(
             SwitchNode(
@@ -95,7 +129,6 @@ object LevelCatalog {
         spawn = Vec2(75f, 390f),
         platforms = listOf(
             Platform("f1", 0f, 480f, 520f, 120f),
-            // Moving platform across cable trench
             Platform(
                 id = "mov_1_2",
                 x = 560f,
@@ -146,27 +179,313 @@ object LevelCatalog {
     )
 
     // =========================================================================
-    // WORLD 2: GRAVITY (Momentum, Ice Friction & Gravity Inversion)
+    // WORLD 2 (NEW CANON): IWAKURA FAMILY HOME (H-1)
+    // =========================================================================
+
+    private fun levelH_1() = LevelDefinition(
+        id = "H-1",
+        worldId = WorldId.FAMILY_HOME,
+        orderIndex = 2,
+        worldWidth = 1760f,
+        worldHeight = 600f,
+        spawn = Vec2(75f, 410f),
+        platforms = listOf(
+            Platform("home_f1", 0f, 490f, 1760f, 110f),
+            Platform("table_dining", 360f, 420f, 190f, 22f),
+            Platform("stairs_mid", 670f, 385f, 170f, 22f),
+            Platform("upstairs_hall", 900f, 315f, 440f, 24f),
+            Platform("wall_home", 1480f, 0f, 28f, 386f)
+        ),
+        npcs = listOf(
+            StoryNpc(
+                id = "npc_yasuo",
+                x = 270f,
+                y = 490f,
+                nameKey = "npc_yasuo_name",
+                dialogueKey = "npc_yasuo_line",
+                isCanon = true,
+                outfitColorArgb = 0xFF3E4A5CL,
+                hairColorArgb = 0xFF282628L
+            ),
+            StoryNpc(
+                id = "npc_mika",
+                x = 1040f,
+                y = 315f,
+                nameKey = "npc_mika_name",
+                dialogueKey = "npc_mika_line",
+                isCanon = true,
+                outfitColorArgb = 0xFF8E5A68L,
+                hairColorArgb = 0xFF3C2522L
+            )
+        ),
+        switches = listOf(
+            SwitchNode(
+                id = "term_home",
+                x = 1230f,
+                y = 263f,
+                width = 46f,
+                height = 52f,
+                kind = SwitchKind.TERMINAL,
+                signalId = "sig_home_door"
+            )
+        ),
+        doors = listOf(
+            Door("door_home", x = 1480f, y = 386f, width = 28f, height = 104f, linkedSignalId = "sig_home_door")
+        ),
+        shards = listOf(
+            CollectibleShard("s_h1_a", 455f, 365f),
+            CollectibleShard("s_h1_b", 1120f, 255f),
+            CollectibleShard("s_h1_c", 1380f, 430f)
+        ),
+        checkpoints = listOf(
+            Checkpoint("cp_h1", 860f, 490f)
+        ),
+        exit = PortalExit(x = 1620f, y = 404f)
+    )
+
+    // =========================================================================
+    // WORLD 3 (NEW CANON): SCHOOL CLASSROOM & CORRIDOR (S-1)
+    // =========================================================================
+
+    private fun levelS_1() = LevelDefinition(
+        id = "S-1",
+        worldId = WorldId.SCHOOL,
+        orderIndex = 3,
+        worldWidth = 1840f,
+        worldHeight = 600f,
+        spawn = Vec2(75f, 410f),
+        platforms = listOf(
+            Platform("sch_floor", 0f, 490f, 1840f, 110f),
+            Platform("desk_row_1", 340f, 420f, 160f, 20f),
+            Platform("desk_row_2", 590f, 375f, 180f, 20f),
+            Platform("chalk_ledge", 860f, 320f, 260f, 22f),
+            Platform("locker_top", 1210f, 365f, 220f, 22f),
+            Platform("wall_sch", 1560f, 0f, 28f, 386f)
+        ),
+        npcs = listOf(
+            StoryNpc(
+                id = "npc_alice",
+                x = 420f,
+                y = 490f,
+                nameKey = "npc_alice_name",
+                dialogueKey = "npc_alice_line",
+                isCanon = true,
+                outfitColorArgb = 0xFF3F454EL,
+                hairColorArgb = 0xFF1D2622L
+            ),
+            StoryNpc(
+                id = "npc_classmate",
+                x = 1290f,
+                y = 365f,
+                nameKey = "npc_reika_name",
+                dialogueKey = "npc_reika_line",
+                isCanon = true,
+                outfitColorArgb = 0xFF3F454EL,
+                hairColorArgb = 0xFF473128L
+            )
+        ),
+        boxes = listOf(
+            PhysicsBox("box_school_bag", x = 940f, y = 270f)
+        ),
+        switches = listOf(
+            SwitchNode(
+                id = "plate_sch",
+                x = 1430f,
+                y = 474f,
+                width = 64f,
+                height = 16f,
+                kind = SwitchKind.PRESSURE_PLATE,
+                signalId = "sig_sch_door",
+                requiresWeight = true
+            )
+        ),
+        doors = listOf(
+            Door("door_sch", x = 1560f, y = 386f, width = 28f, height = 104f, linkedSignalId = "sig_sch_door")
+        ),
+        shards = listOf(
+            CollectibleShard("s_s1_a", 675f, 320f),
+            CollectibleShard("s_s1_b", 1040f, 255f),
+            CollectibleShard("s_s1_c", 1320f, 305f)
+        ),
+        checkpoints = listOf(
+            Checkpoint("cp_s1", 820f, 490f)
+        ),
+        exit = PortalExit(x = 1695f, y = 404f)
+    )
+
+    // =========================================================================
+    // WORLD 4 (NEW CANON): SUBURBAN STREETS & POWERLINES (C-1)
+    // =========================================================================
+
+    private fun levelC_1() = LevelDefinition(
+        id = "C-1",
+        worldId = WorldId.STREETS,
+        orderIndex = 4,
+        worldWidth = 1920f,
+        worldHeight = 620f,
+        spawn = Vec2(75f, 410f),
+        platforms = listOf(
+            Platform("st_f1", 0f, 490f, 460f, 130f),
+            Platform("crosswalk_1", 570f, 460f, 200f, 24f),
+            Platform(
+                id = "tram_plat",
+                x = 840f,
+                y = 420f,
+                width = 145f,
+                height = 22f,
+                type = PlatformType.MOVING,
+                startX = 820f,
+                startY = 430f,
+                endX = 1040f,
+                endY = 365f,
+                moveSpeed = 1.4f
+            ),
+            Platform("st_f2", 1180f, 490f, 740f, 130f),
+            Platform("pole_ledge", 1320f, 360f, 210f, 22f),
+            Platform("wall_st", 1650f, 0f, 28f, 386f)
+        ),
+        npcs = listOf(
+            StoryNpc(
+                id = "npc_commuter",
+                x = 320f,
+                y = 490f,
+                nameKey = "npc_commuter_name",
+                dialogueKey = "npc_commuter_line",
+                isCanon = true,
+                outfitColorArgb = 0xFF2E3440L,
+                hairColorArgb = 0xFF1A1E26L
+            )
+        ),
+        switches = listOf(
+            SwitchNode(
+                id = "term_st",
+                x = 1420f,
+                y = 308f,
+                width = 46f,
+                height = 52f,
+                kind = SwitchKind.TERMINAL,
+                signalId = "sig_st_door"
+            )
+        ),
+        doors = listOf(
+            Door("door_st", x = 1650f, y = 386f, width = 28f, height = 104f, linkedSignalId = "sig_st_door")
+        ),
+        shards = listOf(
+            CollectibleShard("s_c1_a", 670f, 390f),
+            CollectibleShard("s_c1_b", 960f, 310f),
+            CollectibleShard("s_c1_c", 1490f, 305f)
+        ),
+        checkpoints = listOf(
+            Checkpoint("cp_c1", 1220f, 490f)
+        ),
+        hazards = listOf(
+            HazardZone("hz_c1_a", 460f, 585f, 720f, 35f)
+        ),
+        exit = PortalExit(x = 1785f, y = 404f)
+    )
+
+    // =========================================================================
+    // WORLD 5 (NEW CANON): CYBERIA CAFE & CLUB (Y-1)
+    // =========================================================================
+
+    private fun levelY_1() = LevelDefinition(
+        id = "Y-1",
+        worldId = WorldId.CYBERIA,
+        orderIndex = 5,
+        worldWidth = 1920f,
+        worldHeight = 620f,
+        spawn = Vec2(75f, 410f),
+        platforms = listOf(
+            Platform("cyb_f1", 0f, 490f, 960f, 130f),
+            Platform("dj_booth", 440f, 385f, 190f, 22f),
+            Platform("vip_balcony", 720f, 330f, 210f, 22f),
+            Platform(
+                id = "hl_cyb",
+                x = 960f,
+                y = 490f,
+                width = 300f,
+                height = 24f,
+                type = PlatformType.HARD_LIGHT,
+                linkedSignalId = "sig_cyb_neon",
+                isSolidActive = false
+            ),
+            Platform("cyb_f2", 1260f, 490f, 660f, 130f),
+            Platform("wall_cyb", 1630f, 0f, 28f, 386f)
+        ),
+        npcs = listOf(
+            StoryNpc(
+                id = "npc_taro",
+                x = 310f,
+                y = 490f,
+                nameKey = "npc_taro_name",
+                dialogueKey = "npc_taro_line",
+                isCanon = true,
+                outfitColorArgb = 0xFF6E8E4FL,
+                hairColorArgb = 0xFF2B2220L
+            ),
+            StoryNpc(
+                id = "npc_myu",
+                x = 805f,
+                y = 330f,
+                nameKey = "npc_myu_name",
+                dialogueKey = "npc_myu_line",
+                isCanon = true,
+                outfitColorArgb = 0xFFAD2B38L,
+                hairColorArgb = 0xFF2B1C1EL
+            )
+        ),
+        emitters = listOf(
+            LightEmitter("em_cyb", x = 160f, y = 335f, dirX = 1f, dirY = 0f)
+        ),
+        mirrors = listOf(
+            MirrorNode("mir_cyb_a", x = 535f, y = 335f, angleStep = 2) // Rotate to 6 (Up) -> hits neon sensor at (535, 175)
+        ),
+        switches = listOf(
+            SwitchNode(
+                id = "photo_cyb",
+                x = 510f,
+                y = 155f,
+                width = 50f,
+                height = 42f,
+                kind = SwitchKind.PHOTO_SENSOR,
+                signalId = "sig_cyb_neon"
+            )
+        ),
+        doors = listOf(
+            Door("door_cyb", x = 1630f, y = 386f, width = 28f, height = 104f, linkedSignalId = "sig_cyb_neon")
+        ),
+        shards = listOf(
+            CollectibleShard("s_y1_a", 535f, 255f),
+            CollectibleShard("s_y1_b", 1110f, 420f),
+            CollectibleShard("s_y1_c", 1450f, 420f)
+        ),
+        checkpoints = listOf(
+            Checkpoint("cp_y1", 760f, 490f)
+        ),
+        hazards = listOf(
+            HazardZone("hz_y1", 960f, 585f, 300f, 35f)
+        ),
+        exit = PortalExit(x = 1765f, y = 404f)
+    )
+
+    // =========================================================================
+    // WORLD 6: GRAVITY (Momentum, Ice Friction & Gravity Inversion)
     // =========================================================================
 
     private fun level2_1() = LevelDefinition(
         id = "2-1",
         worldId = WorldId.GRAVITY,
-        orderIndex = 2,
+        orderIndex = 6,
         worldWidth = 1860f,
         worldHeight = 620f,
         spawn = Vec2(80f, 410f),
         platforms = listOf(
             Platform("start", 0f, 490f, 280f, 130f),
-            // Long low-friction ice runway
             Platform("ice1", 280f, 490f, 420f, 36f, type = PlatformType.ICE),
-            // Sticky brake pad before gap
             Platform("sticky1", 700f, 490f, 120f, 36f, type = PlatformType.STICKY),
-            // Mid island with ice slide for crate puzzle
             Platform("mid_solid", 970f, 490f, 160f, 130f),
             Platform("ice2", 1130f, 490f, 420f, 36f, type = PlatformType.ICE),
             Platform("end_floor", 1550f, 490f, 310f, 130f),
-            // Upper shard platform reachable via momentum jump
             Platform("high1", 760f, 375f, 150f, 22f),
             Platform("wall_2_1", 1600f, 0f, 28f, 386f)
         ),
@@ -205,17 +524,15 @@ object LevelCatalog {
     private fun level2_2() = LevelDefinition(
         id = "2-2",
         worldId = WorldId.GRAVITY,
-        orderIndex = 3,
+        orderIndex = 7,
         worldWidth = 1860f,
         worldHeight = 640f,
         spawn = Vec2(80f, 440f),
         platforms = listOf(
-            // Floor and Ceiling corridor
             Platform("floor1", 0f, 520f, 520f, 120f),
             Platform("ceil1", 0f, 0f, 1860f, 70f),
-            // Low-gravity shaft platforms
             Platform("mid_ledge", 540f, 430f, 180f, 24f),
-            Platform("ceil_walk", 760f, 70f, 560f, 28f), // Ceiling path when inverted
+            Platform("ceil_walk", 760f, 70f, 560f, 28f),
             Platform("floor_mid", 780f, 520f, 420f, 120f),
             Platform("floor_end", 1340f, 520f, 520f, 120f),
             Platform("wall_2_2", 1600f, 70f, 28f, 346f)
@@ -225,9 +542,10 @@ object LevelCatalog {
             GravityZone("gz_inv", 820f, 98f, 360f, 422f, GravityZoneMode.INVERTED)
         ),
         switches = listOf(
+            // FIX (E2.2): Grounded solidly on floor_mid (780..1200) instead of floating over pit hz_2_2_b
             SwitchNode(
                 id = "grav_sw_2_2",
-                x = 1230f,
+                x = 1120f,
                 y = 468f,
                 width = 46f,
                 height = 52f,
@@ -263,22 +581,20 @@ object LevelCatalog {
     )
 
     // =========================================================================
-    // WORLD 3: CREATION (Interactive Ink Bridges + Sketchbook Synergy)
+    // WORLD 7: CREATION (Interactive Flat & Sloped Ink Bridges)
     // =========================================================================
 
     private fun level3_1() = LevelDefinition(
         id = "3-1",
         worldId = WorldId.CREATION,
-        orderIndex = 4,
+        orderIndex = 8,
         worldWidth = 1760f,
         worldHeight = 620f,
         spawn = Vec2(80f, 420f),
         allowInkDrawing = true,
         platforms = listOf(
             Platform("p1", 0f, 500f, 380f, 120f),
-            // Wide chasm (~290px) — draw an ink bridge to cross!
             Platform("p2", 670f, 460f, 260f, 160f),
-            // High island (~190px up) — draw a stepping ink platform!
             Platform("p3", 1040f, 290f, 230f, 26f),
             Platform("p4", 1360f, 480f, 400f, 140f),
             Platform("wall_3_1", 1500f, 0f, 28f, 376f)
@@ -315,14 +631,13 @@ object LevelCatalog {
     private fun level3_2() = LevelDefinition(
         id = "3-2",
         worldId = WorldId.CREATION,
-        orderIndex = 5,
+        orderIndex = 9,
         worldWidth = 1880f,
         worldHeight = 620f,
         spawn = Vec2(75f, 400f),
         allowInkDrawing = true,
         platforms = listOf(
             Platform("p1", 0f, 480f, 460f, 140f),
-            // Gap of 210px where player draws a flat ink bridge so crate can roll across
             Platform("p2", 670f, 480f, 420f, 140f),
             Platform(
                 id = "mov_3_2",
@@ -374,21 +689,21 @@ object LevelCatalog {
     )
 
     // =========================================================================
-    // WORLD 4: ENERGY (Light-Beam Mirrors & Magnetic Polarity Coils)
+    // WORLD 8: ENERGY (Light-Beam Mirrors & Magnetic Polarity Coils)
     // =========================================================================
 
     private fun level4_1() = LevelDefinition(
         id = "4-1",
         worldId = WorldId.ENERGY,
-        orderIndex = 6,
+        orderIndex = 10,
         worldWidth = 1780f,
         worldHeight = 620f,
         spawn = Vec2(80f, 410f),
         platforms = listOf(
             Platform("p1", 0f, 490f, 920f, 130f),
-            // Raised platform for mirror 1
             Platform("m_plat1", 430f, 390f, 150f, 22f),
-            // Hard-light bridge energized when photo-sensor is hit!
+            // FIX (E2.2): Dedicated standing platform directly under mir_4_1_b so player never needs mid-air ACT taps
+            Platform("m_plat2", 740f, 390f, 140f, 22f),
             Platform(
                 id = "hl_4_1",
                 x = 920f,
@@ -402,16 +717,12 @@ object LevelCatalog {
             Platform("p2", 1240f, 490f, 540f, 130f),
             Platform("wall_4_1", 1500f, 0f, 28f, 386f)
         ),
-        // Emitter shoots straight right at y=350 -> hits mirror1 at (505,350) -> rotate to aim Up-Right (step 7) or Right (step 0) into mirror2 at (820,350) -> aim Down-Right/Up into sensor!
-        // Let's make it crisp: Emitter at (180, 340) shoots right (1,0) -> hits Mirror1 at (505, 340).
-        // Mirror1 initially points Down (step 2). Player rotates Mirror1 to point Right (step 0) -> hits Mirror2 at (810, 340).
-        // Mirror2 initially points Up (step 6). Player rotates Mirror2 to point Down-Right (step 1) or Right (step 0) -> hits PhotoSensor at (810, 180) when Up (step 6), wait: let's have Mirror2 start at step 2 (Down), and PhotoSensor at (810, 180) so rotating Mirror2 to step 6 (Up) hits it!
         emitters = listOf(
             LightEmitter("em_4_1", x = 180f, y = 340f, dirX = 1f, dirY = 0f)
         ),
         mirrors = listOf(
-            MirrorNode("mir_4_1_a", x = 505f, y = 340f, angleStep = 2), // Rotate to 0 (Right)
-            MirrorNode("mir_4_1_b", x = 810f, y = 340f, angleStep = 4)  // Rotate to 6 (Up) -> hits sensor at (810, 175)
+            MirrorNode("mir_4_1_a", x = 505f, y = 340f, angleStep = 2),
+            MirrorNode("mir_4_1_b", x = 810f, y = 340f, angleStep = 4)
         ),
         switches = listOf(
             SwitchNode(
@@ -444,15 +755,16 @@ object LevelCatalog {
     private fun level4_2() = LevelDefinition(
         id = "4-2",
         worldId = WorldId.ENERGY,
-        orderIndex = 7,
+        orderIndex = 11,
         worldWidth = 1880f,
         worldHeight = 620f,
         spawn = Vec2(80f, 410f),
         platforms = listOf(
             Platform("p1", 0f, 490f, 520f, 130f),
             Platform("p2", 640f, 490f, 1240f, 130f),
-            // Raised glass track for the metallic crate so magnets pull/push it cleanly onto the switch
             Platform("track", 720f, 360f, 660f, 24f, type = PlatformType.ICE),
+            // FIX (E2.2): Left track stopper prevents metal crate from sliding off left edge before switch toggle
+            Platform("track_stop_left", 720f, 290f, 24f, 70f),
             Platform("track_stop", 1308f, 290f, 24f, 70f),
             Platform("step_up", 560f, 430f, 110f, 22f),
             Platform("wall_4_2", 1600f, 0f, 28f, 386f)
@@ -463,10 +775,10 @@ object LevelCatalog {
         magnets = listOf(
             MagnetCoil(
                 id = "mag_4_2_left",
-                x = 710f,
+                x = 670f,
                 y = 290f,
                 mode = MagnetMode.ATTRACT,
-                range = 420f,
+                range = 540f,
                 strength = 1150f,
                 linkedSignalId = "sig_mag_4_2"
             ),
@@ -475,13 +787,12 @@ object LevelCatalog {
                 x = 1334f,
                 y = 290f,
                 mode = MagnetMode.REPEL,
-                range = 620f,
+                range = 660f,
                 strength = 1350f,
                 linkedSignalId = "sig_mag_4_2"
             )
         ),
         switches = listOf(
-            // Toggling this flips left coil to REPEL and right coil to ATTRACT -> zooms metal crate right onto plate!
             SwitchNode(
                 id = "mag_sw_4_2",
                 x = 920f,
@@ -520,19 +831,18 @@ object LevelCatalog {
     )
 
     // =========================================================================
-    // WORLD 5: BALANCE (Tilting Center-of-Gravity Beams & Judo Trials)
+    // WORLD 9: BALANCE DOJO (Tilting Beams & Judo Trials — Original Non-Canon)
     // =========================================================================
 
     private fun level5_1() = LevelDefinition(
         id = "5-1",
         worldId = WorldId.BALANCE,
-        orderIndex = 8,
+        orderIndex = 12,
         worldWidth = 1760f,
         worldHeight = 620f,
         spawn = Vec2(75f, 410f),
         platforms = listOf(
             Platform("p1", 0f, 490f, 360f, 130f),
-            // Tilting Judo balance beam across courtyard gap
             Platform("beam_5_1", 410f, 480f, 300f, 20f, type = PlatformType.TILTING_BEAM),
             Platform("p2", 760f, 490f, 1000f, 130f),
             Platform("dojo_step", 950f, 415f, 240f, 22f),
@@ -567,7 +877,7 @@ object LevelCatalog {
     private fun level5_2() = LevelDefinition(
         id = "5-2",
         worldId = WorldId.BALANCE,
-        orderIndex = 9,
+        orderIndex = 13,
         worldWidth = 1940f,
         worldHeight = 620f,
         spawn = Vec2(75f, 410f),
@@ -584,7 +894,7 @@ object LevelCatalog {
                 id = "shrine_5_2",
                 x = 1480f,
                 y = 490f,
-                trialId = JudoTrialId.KUZUSHI_REDIRECT,
+                trialId = JudoTrialId.UKEMI_REACTION,
                 signalId = "sig_judo_5_2"
             )
         ),
@@ -607,13 +917,13 @@ object LevelCatalog {
     )
 
     // =========================================================================
-    // WORLD 6: THE WIRED (Final Synthesis of All Mechanics)
+    // WORLD 10: THE WIRED (Final Synthesis of All Mechanics)
     // =========================================================================
 
     private fun level6_1() = LevelDefinition(
         id = "6-1",
         worldId = WorldId.THE_WIRED,
-        orderIndex = 10,
+        orderIndex = 14,
         worldWidth = 2040f,
         worldHeight = 640f,
         spawn = Vec2(75f, 430f),
@@ -622,6 +932,8 @@ object LevelCatalog {
             Platform("lowg_ledge", 620f, 340f, 220f, 24f),
             Platform("p2", 900f, 510f, 1140f, 130f),
             Platform("track_6_1", 1080f, 370f, 540f, 24f, type = PlatformType.ICE),
+            // FIX (E2.2): Left track stopper prevents metal crate soft-lock on 6-1
+            Platform("track_6_1_stop_left", 1080f, 300f, 24f, 70f),
             Platform("track_6_1_stop", 1564f, 300f, 24f, 70f),
             Platform(
                 id = "hl_6_1",
@@ -642,7 +954,7 @@ object LevelCatalog {
             LightEmitter("em_6_1", x = 150f, y = 420f, dirX = 1f, dirY = 0f)
         ),
         mirrors = listOf(
-            MirrorNode("mir_6_1", x = 440f, y = 420f, angleStep = 2) // Rotate to 7 (Up-Right) or 6 (Up) -> sensor at (440, 220)
+            MirrorNode("mir_6_1", x = 440f, y = 420f, angleStep = 2)
         ),
         boxes = listOf(
             PhysicsBox("metal_6_1", x = 1160f, y = 315f, isMetal = true)
@@ -653,7 +965,7 @@ object LevelCatalog {
                 x = 1580f,
                 y = 305f,
                 mode = MagnetMode.REPEL,
-                range = 520f,
+                range = 620f,
                 strength = 1280f,
                 linkedSignalId = "sig_mag_6_1"
             )
@@ -708,16 +1020,14 @@ object LevelCatalog {
     private fun level6_2() = LevelDefinition(
         id = "6-2",
         worldId = WorldId.THE_WIRED,
-        orderIndex = 11,
+        orderIndex = 15,
         worldWidth = 2160f,
         worldHeight = 640f,
         spawn = Vec2(75f, 430f),
         allowInkDrawing = true,
         platforms = listOf(
             Platform("p1", 0f, 510f, 380f, 130f),
-            // Gap for Ink Bridge creation!
             Platform("p2", 650f, 480f, 300f, 160f),
-            // Tilting balance beam in Wired void
             Platform("beam_6_2", 1000f, 470f, 280f, 20f, type = PlatformType.TILTING_BEAM),
             Platform("p3", 1330f, 510f, 830f, 130f),
             Platform("core_step", 1500f, 425f, 220f, 24f),

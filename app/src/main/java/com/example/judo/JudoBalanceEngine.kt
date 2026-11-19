@@ -11,6 +11,8 @@ data class ForceWave(
     /** 1.0 = outer edge, 0.0 = center */
     val distance: Float,
     val speed: Float,
+    /** Sweep wave requires timed Ukemi (breakfall) instead of directional Kuzushi redirect */
+    val isSweepWave: Boolean = false,
     val handled: Boolean = false
 )
 
@@ -18,6 +20,7 @@ enum class JudoFeedback {
     NONE,
     PERFECT,
     GOOD,
+    UKEMI_SAFE,
     MISS
 }
 
@@ -31,7 +34,7 @@ enum class JudoStatus {
 data class JudoState(
     val trialId: JudoTrialId,
     val status: JudoStatus = JudoStatus.READY,
-    /** Center of Gravity offset in [-1.0, +1.0]; safe harmony zone is [-0.36, +0.36] */
+    /** Center of Gravity offset in [-1.0, +1.0]; safe harmony zone is [-0.38, +0.38] */
     val cogOffset: Float = 0f,
     val cogVelocity: Float = 0f,
     /** 0..100 stability health */
@@ -45,6 +48,7 @@ data class JudoState(
     val nextWaveId: Int = 1,
     val feedback: JudoFeedback = JudoFeedback.NONE,
     val feedbackTimer: Float = 0f,
+    val ukemiPoseTimer: Float = 0f,
     val currentWindForce: Float = 0f
 )
 
@@ -53,13 +57,14 @@ data class JudoInput(
     val leanRight: Boolean = false,
     val braceCenter: Boolean = false,
     val redirectLeftJustPressed: Boolean = false,
-    val redirectRightJustPressed: Boolean = false
+    val redirectRightJustPressed: Boolean = false,
+    val ukemiJustPressed: Boolean = false
 )
 
 /**
- * Lightweight, physics-based Judo Balance & Kuzushi mini-game engine.
- * Models center-of-gravity torque, external force currents, and timing-based
- * directional force redirection (using incoming momentum rather than opposing it).
+ * Lightweight, physics-based Judo Balance, Kuzushi & Ukemi mini-game engine (Evolution 2.0).
+ * Original game interpretation inspired by balance, momentum redirection, and breakfall timing
+ * (not real-world martial arts instruction).
  */
 object JudoBalanceEngine {
 
@@ -81,11 +86,13 @@ object JudoBalanceEngine {
         var score = state.score
         var feedback = if (state.feedbackTimer - clampedDt > 0f) state.feedback else JudoFeedback.NONE
         var feedbackTimer = (state.feedbackTimer - clampedDt).coerceAtLeast(0f)
+        var ukemiPoseTimer = (state.ukemiPoseTimer - clampedDt).coerceAtLeast(0f)
 
-        // 1. Ambient directional force currents (stronger on Trial I & III)
+        // 1. Ambient directional force currents
         val windStrength = when (state.trialId) {
             JudoTrialId.STILL_CENTER -> 0.85f
             JudoTrialId.KUZUSHI_REDIRECT -> 0.28f
+            JudoTrialId.UKEMI_REACTION -> 0.44f
             JudoTrialId.EQUILIBRIUM_FLOW -> 0.62f
         }
         val wind = (sin(elapsed * 1.45f) * 0.65f + sin(elapsed * 2.9f + 1.1f) * 0.35f) * windStrength
@@ -95,30 +102,64 @@ object JudoBalanceEngine {
         if (input.leanLeft) playerForce -= 1.65f
         if (input.leanRight) playerForce += 1.65f
 
-        val gravityTorque = cog * 0.85f // Leaning farther increases pull outward
+        val gravityTorque = cog * 0.85f
         val damping = if (input.braceCenter) -3.8f * vel else -1.6f * vel
         val accel = wind + playerForce + gravityTorque + damping
 
         vel = (vel + accel * clampedDt).coerceIn(-2.4f, 2.4f)
         cog = (cog + vel * clampedDt).coerceIn(-1.05f, 1.05f)
 
-        // 3. Wave Spawning & Kuzushi Redirection (Trial II & III)
-        var waves = state.waves.map { it.copy(distance = it.distance - it.speed * clampedDt) }.toMutableList()
+        // 3. Wave Spawning (Standard Kuzushi Waves + High-Impulse Ukemi Sweep Waves)
+        val waves = state.waves.map { it.copy(distance = it.distance - it.speed * clampedDt) }.toMutableList()
         var nextWaveTimer = state.nextWaveTimer - clampedDt
         var nextWaveId = state.nextWaveId
 
         if (state.trialId != JudoTrialId.STILL_CENTER && nextWaveTimer <= 0f) {
             val side = if (nextWaveId % 2 == 1) -1 else 1
-            val speed = if (state.trialId == JudoTrialId.EQUILIBRIUM_FLOW) 0.56f else 0.48f
-            waves.add(ForceWave(id = nextWaveId, fromSide = side, distance = 1.0f, speed = speed))
+            val isSweep = when (state.trialId) {
+                JudoTrialId.UKEMI_REACTION -> (nextWaveId % 2 == 0)
+                JudoTrialId.EQUILIBRIUM_FLOW -> (nextWaveId % 3 == 0)
+                else -> false
+            }
+            val speed = when (state.trialId) {
+                JudoTrialId.EQUILIBRIUM_FLOW -> 0.56f
+                JudoTrialId.UKEMI_REACTION -> if (isSweep) 0.52f else 0.46f
+                else -> 0.48f
+            }
+            waves.add(ForceWave(id = nextWaveId, fromSide = side, distance = 1.0f, speed = speed, isSweepWave = isSweep))
             nextWaveId++
-            nextWaveTimer = if (state.trialId == JudoTrialId.EQUILIBRIUM_FLOW) 2.25f else 2.0f
+            nextWaveTimer = if (state.trialId == JudoTrialId.EQUILIBRIUM_FLOW) 2.2f else 2.0f
         }
 
-        // Handle Redirect button presses (Redirect Left catches waves coming from left / pushing right, etc.)
+        // 4. Handle Ukemi (Breakfall) timing reaction for sweep waves
+        if (input.ukemiJustPressed) {
+            val sweepIdx = waves.indexOfFirst { !it.handled && it.isSweepWave && it.distance in 0.05f..0.46f }
+            if (sweepIdx >= 0) {
+                val w = waves[sweepIdx]
+                waves[sweepIdx] = w.copy(handled = true)
+                harmony += 23f
+                score += 240
+                stability = (stability + 8f).coerceAtMost(100f)
+                vel *= 0.15f
+                cog *= 0.35f
+                ukemiPoseTimer = 0.55f
+                feedback = JudoFeedback.UKEMI_SAFE
+                feedbackTimer = 0.90f
+            } else {
+                // Early/unnecessary breakfall slightly slows flow
+                vel *= 0.6f
+                stability = (stability - 5f).coerceAtLeast(0f)
+                feedback = JudoFeedback.MISS
+                feedbackTimer = 0.60f
+            }
+        }
+
+        // 5. Handle Directional Kuzushi Redirect presses (for standard non-sweep waves)
         if (input.redirectLeftJustPressed || input.redirectRightJustPressed) {
             val chosenSide = if (input.redirectLeftJustPressed) -1 else 1
-            val targetIdx = waves.indexOfFirst { !it.handled && it.fromSide == chosenSide && it.distance in 0.05f..0.44f }
+            val targetIdx = waves.indexOfFirst {
+                !it.handled && !it.isSweepWave && it.fromSide == chosenSide && it.distance in 0.05f..0.44f
+            }
             if (targetIdx >= 0) {
                 val w = waves[targetIdx]
                 waves[targetIdx] = w.copy(handled = true)
@@ -126,13 +167,11 @@ object JudoBalanceEngine {
                 harmony += if (isPerfect) 24f else 17f
                 score += if (isPerfect) 250 else 150
                 stability = (stability + 6f).coerceAtMost(100f)
-                // Smoothly recenter CoG via Kuzushi flow
                 vel *= 0.25f
                 cog *= 0.45f
                 feedback = if (isPerfect) JudoFeedback.PERFECT else JudoFeedback.GOOD
                 feedbackTimer = 0.85f
             } else {
-                // Mistimed redirect slightly nudges balance
                 vel += chosenSide * 0.45f
                 stability = (stability - 6f).coerceAtLeast(0f)
                 feedback = JudoFeedback.MISS
@@ -140,14 +179,15 @@ object JudoBalanceEngine {
             }
         }
 
-        // Resolve waves that reached center unhandled
+        // 6. Resolve waves that reached center unhandled
         val remainingWaves = mutableListOf<ForceWave>()
         for (w in waves) {
             if (w.handled) continue
             if (w.distance <= 0.04f) {
-                // Force impact pushes CoG opposite to where it came from
-                vel += (-w.fromSide) * 1.15f
-                stability = (stability - 16f).coerceAtLeast(0f)
+                val impact = if (w.isSweepWave) 1.38f else 1.15f
+                val dmg = if (w.isSweepWave) 20f else 16f
+                vel += (-w.fromSide) * impact
+                stability = (stability - dmg).coerceAtLeast(0f)
                 feedback = JudoFeedback.MISS
                 feedbackTimer = 0.75f
             } else {
@@ -155,13 +195,14 @@ object JudoBalanceEngine {
             }
         }
 
-        // 4. Stability & Harmony scoring from Center-of-Gravity balance
+        // 7. Stability & Harmony scoring from Center-of-Gravity balance
         val inSafeZone = abs(cog) <= SAFE_ZONE
         if (inSafeZone) {
             val gainRate = when (state.trialId) {
-                JudoTrialId.STILL_CENTER -> 12.5f // ~8s of calm balance wins Trial I
-                JudoTrialId.KUZUSHI_REDIRECT -> 2.2f // Redirects are primary driver
-                JudoTrialId.EQUILIBRIUM_FLOW -> 4.2f // Balance + redirects combined
+                JudoTrialId.STILL_CENTER -> 12.5f
+                JudoTrialId.KUZUSHI_REDIRECT -> 2.2f
+                JudoTrialId.UKEMI_REACTION -> 3.0f
+                JudoTrialId.EQUILIBRIUM_FLOW -> 4.2f
             }
             harmony += gainRate * clampedDt
             score += (18f * clampedDt).toInt()
@@ -194,6 +235,7 @@ object JudoBalanceEngine {
             nextWaveId = nextWaveId,
             feedback = feedback,
             feedbackTimer = feedbackTimer,
+            ukemiPoseTimer = ukemiPoseTimer,
             currentWindForce = wind
         )
     }

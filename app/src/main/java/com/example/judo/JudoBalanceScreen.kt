@@ -32,12 +32,13 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.example.audio.SoundEffect
 import com.example.data.JudoTrialId
+import com.example.data.LainOutfit
 import com.example.game.model.LainAnimState
+import com.example.game.model.LainExpression
 import com.example.game.model.PlayerState
 import com.example.game.render.LainSpriteRenderer.drawLainGameSprite
 import com.example.i18n.LocalStrings
 import com.example.ui.theme.*
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
@@ -59,9 +60,11 @@ fun JudoBalanceScreen(
     var braceCenter by remember { mutableStateOf(false) }
     var redirectLeftQueued by remember { mutableStateOf(false) }
     var redirectRightQueued by remember { mutableStateOf(false) }
+    var ukemiQueued by remember { mutableStateOf(false) }
     var victoryReported by remember(trialId) { mutableStateOf(false) }
 
-    // 60 FPS frame loop while active
+    val supportsUkemi = trialId == JudoTrialId.UKEMI_REACTION || trialId == JudoTrialId.EQUILIBRIUM_FLOW
+
     LaunchedEffect(state.status, trialId) {
         if (state.status != JudoStatus.ACTIVE) return@LaunchedEffect
         var lastNanos = withFrameNanos { it }
@@ -78,16 +81,19 @@ fun JudoBalanceScreen(
                     leanRight = leanRight,
                     braceCenter = braceCenter,
                     redirectLeftJustPressed = redirectLeftQueued,
-                    redirectRightJustPressed = redirectRightQueued
+                    redirectRightJustPressed = redirectRightQueued,
+                    ukemiJustPressed = ukemiQueued
                 ),
                 dt = dt
             )
             redirectLeftQueued = false
             redirectRightQueued = false
+            ukemiQueued = false
 
             if (next.feedback != prevFeedback && next.feedback != JudoFeedback.NONE) {
                 when (next.feedback) {
                     JudoFeedback.PERFECT, JudoFeedback.GOOD -> onPlaySfx(SoundEffect.JUDO_REDIRECT)
+                    JudoFeedback.UKEMI_SAFE -> onPlaySfx(SoundEffect.JUDO_UKEMI)
                     JudoFeedback.MISS -> onPlaySfx(SoundEffect.ERROR)
                     JudoFeedback.NONE -> Unit
                 }
@@ -125,11 +131,7 @@ fun JudoBalanceScreen(
                         .size(48.dp)
                         .testTag("judo_back_button")
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = strings.back,
-                        tint = TextPrimary
-                    )
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.back, tint = TextPrimary)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
@@ -152,11 +154,7 @@ fun JudoBalanceScreen(
                         .size(48.dp)
                         .testTag("judo_restart_button")
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = strings.restart,
-                        tint = TextPrimary
-                    )
+                    Icon(Icons.Default.Refresh, contentDescription = strings.restart, tint = TextPrimary)
                 }
             }
 
@@ -179,7 +177,7 @@ fun JudoBalanceScreen(
                 )
             }
 
-            // Dojo Balance Arena Canvas
+            // Tatami Dojo Balance Arena Canvas
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -193,16 +191,31 @@ fun JudoBalanceScreen(
                     val cy = size.height * 0.56f
                     val arcR = minOf(size.width * 0.40f, size.height * 0.44f)
 
-                    // Subtle tatami grid lines
+                    // Dojo Shoji upper wall + woven Tatami mat floor
+                    val matY = cy + arcR * 0.34f
                     drawRect(
-                        brush = Brush.verticalGradient(listOf(Color(0xFF0A111A), Color(0xFF152228)))
+                        brush = Brush.verticalGradient(listOf(Color(0xFF151E22), Color(0xFF1E2B2A))),
+                        size = Size(size.width, matY)
                     )
-                    drawLine(
-                        color = HarmonyJade.copy(alpha = 0.14f),
-                        start = Offset(0f, cy + arcR * 0.42f),
-                        end = Offset(size.width, cy + arcR * 0.42f),
-                        strokeWidth = 2f
+                    // Shoji lattice lines
+                    val shojiGap = 54f
+                    var sx = shojiGap
+                    while (sx < size.width) {
+                        drawLine(Color(0xFF3A4C46).copy(alpha = 0.22f), Offset(sx, 0f), Offset(sx, matY), 1.5f)
+                        sx += shojiGap
+                    }
+                    // Tatami mat surface (warm sage green with dark cloth borders)
+                    drawRect(
+                        brush = Brush.verticalGradient(listOf(Color(0xFF284237), Color(0xFF1C3028)), startY = matY, endY = size.height),
+                        topLeft = Offset(0f, matY),
+                        size = Size(size.width, size.height - matY)
                     )
+                    drawLine(Color(0xFF111D18), Offset(0f, matY), Offset(size.width, matY), 4f)
+                    // Vertical tatami tile seams
+                    for (tIdx in 1..3) {
+                        val tx = size.width * (tIdx / 4f)
+                        drawLine(Color(0xFF12211B), Offset(tx, matY), Offset(tx, size.height), 3f)
+                    }
 
                     // Outer balance track arc
                     drawArc(
@@ -215,7 +228,7 @@ fun JudoBalanceScreen(
                         style = Stroke(width = 14f, cap = StrokeCap.Round)
                     )
 
-                    // Safe Harmony Zone highlight on top of arc
+                    // Safe Harmony Zone highlight
                     drawArc(
                         color = HarmonyJade.copy(alpha = 0.72f),
                         startAngle = 244f,
@@ -226,100 +239,56 @@ fun JudoBalanceScreen(
                         style = Stroke(width = 16f, cap = StrokeCap.Round)
                     )
 
-                    // Timing redirect rings (for Trial II & III)
                     if (trialId != JudoTrialId.STILL_CENTER) {
-                        val ringOuter = arcR * 0.44f
-                        val ringInner = arcR * 0.18f
-                        drawCircle(
-                            color = DeskAmber.copy(alpha = 0.28f),
-                            radius = ringOuter,
-                            center = Offset(cx, cy),
-                            style = Stroke(width = 3f)
-                        )
-                        drawCircle(
-                            color = HarmonyJade.copy(alpha = 0.4f),
-                            radius = ringInner,
-                            center = Offset(cx, cy),
-                            style = Stroke(width = 2f)
-                        )
+                        drawCircle(DeskAmber.copy(alpha = 0.28f), arcR * 0.44f, Offset(cx, cy), style = Stroke(width = 3f))
+                        drawCircle(HarmonyJade.copy(alpha = 0.4f), arcR * 0.18f, Offset(cx, cy), style = Stroke(width = 2f))
                     }
 
-                    // Incoming directional force waves
+                    // Incoming directional force waves (Amber/Coral for Redirect, Violet-Pulse for Ukemi Sweep!)
                     val maxWaveSpan = size.width * 0.46f
                     state.waves.forEach { w ->
                         val wx = cx + w.fromSide * (w.distance * maxWaveSpan)
-                        val inWindow = w.distance in 0.12f..0.42f
-                        val waveColor = if (inWindow) DeskAmber else SignalCoral
-                        drawCircle(
-                            color = waveColor.copy(alpha = 0.25f),
-                            radius = if (inWindow) 28f else 20f,
-                            center = Offset(wx, cy)
-                        )
-                        drawCircle(
-                            color = waveColor,
-                            radius = if (inWindow) 14f else 11f,
-                            center = Offset(wx, cy)
-                        )
-                        // Direction chevron pointing inward
-                        val dir = -w.fromSide.toFloat()
-                        drawLine(
-                            color = Color.White,
-                            start = Offset(wx - dir * 5f, cy - 6f),
-                            end = Offset(wx + dir * 5f, cy),
-                            strokeWidth = 2.6f,
-                            cap = StrokeCap.Round
-                        )
-                        drawLine(
-                            color = Color.White,
-                            start = Offset(wx - dir * 5f, cy + 6f),
-                            end = Offset(wx + dir * 5f, cy),
-                            strokeWidth = 2.6f,
-                            cap = StrokeCap.Round
-                        )
+                        val inWindow = w.distance in 0.12f..0.44f
+                        val waveColor = when {
+                            w.isSweepWave -> WiredViolet
+                            inWindow -> DeskAmber
+                            else -> SignalCoral
+                        }
+                        drawCircle(waveColor.copy(alpha = 0.28f), if (inWindow) 30f else 22f, Offset(wx, cy))
+                        drawCircle(waveColor, if (inWindow) 15f else 11f, Offset(wx, cy))
+                        if (w.isSweepWave) {
+                            // Double ring indicating Ukemi breakfall sweep!
+                            drawCircle(Color.White.copy(alpha = 0.85f), 20f, Offset(wx, cy), style = Stroke(width = 2f))
+                        } else {
+                            val dir = -w.fromSide.toFloat()
+                            drawLine(Color.White, Offset(wx - dir * 5f, cy - 6f), Offset(wx + dir * 5f, cy), 2.6f, StrokeCap.Round)
+                            drawLine(Color.White, Offset(wx - dir * 5f, cy + 6f), Offset(wx + dir * 5f, cy), 2.6f, StrokeCap.Round)
+                        }
                     }
 
-                    // Ambient wind direction indicator arrow
+                    // Ambient wind direction indicator
                     val windLen = (state.currentWindForce * 65f).coerceIn(-68f, 68f)
                     if (abs(windLen) > 6f) {
                         val arrowY = cy + arcR * 0.56f
-                        drawLine(
-                            color = NaviCyan.copy(alpha = 0.65f),
-                            start = Offset(cx, arrowY),
-                            end = Offset(cx + windLen, arrowY),
-                            strokeWidth = 4f,
-                            cap = StrokeCap.Round
-                        )
+                        drawLine(NaviCyan.copy(alpha = 0.65f), Offset(cx, arrowY), Offset(cx + windLen, arrowY), 4f, StrokeCap.Round)
                     }
 
-                    // Center-of-Gravity Pendulum needle & Lain leaning on balance beam
+                    // Center-of-Gravity Pendulum needle
                     val tiltDeg = state.cogOffset * 58f
                     val angleRad = Math.toRadians((tiltDeg - 90f).toDouble())
                     val bobX = cx + cos(angleRad).toFloat() * arcR
                     val bobY = cy + sin(angleRad).toFloat() * arcR
                     val isBalanced = abs(state.cogOffset) <= 0.38f
 
-                    drawLine(
-                        color = if (isBalanced) HarmonyJade else SignalCoral,
-                        start = Offset(cx, cy),
-                        end = Offset(bobX, bobY),
-                        strokeWidth = 3.5f,
-                        cap = StrokeCap.Round
-                    )
-                    drawCircle(
-                        color = if (isBalanced) HarmonyJade else SignalCoral,
-                        radius = 12f,
-                        center = Offset(bobX, bobY)
-                    )
-                    drawCircle(
-                        color = Color.White,
-                        radius = 4.5f,
-                        center = Offset(bobX, bobY)
-                    )
+                    drawLine(if (isBalanced) HarmonyJade else SignalCoral, Offset(cx, cy), Offset(bobX, bobY), 3.5f, StrokeCap.Round)
+                    drawCircle(if (isBalanced) HarmonyJade else SignalCoral, 12f, Offset(bobX, bobY))
+                    drawCircle(Color.White, 4.5f, Offset(bobX, bobY))
 
-                    // Lain sprite balancing at center pivot, gently leaning with CoG!
-                    val spriteScale = (size.height / 240f).coerceIn(0.95f, 1.55f)
+                    // Lain in Black-Belt Judo Gi (Original game interpretation)
+                    val spriteScale = (size.height / 235f).coerceIn(0.95f, 1.55f)
+                    val ukemiTilt = if (state.ukemiPoseTimer > 0f) 24f else 0f
                     withTransform({
-                        rotate(degrees = state.cogOffset * 26f, pivot = Offset(cx, cy + 28f * spriteScale))
+                        rotate(degrees = state.cogOffset * 26f + ukemiTilt, pivot = Offset(cx, cy + 28f * spriteScale))
                     }) {
                         val lainState = PlayerState(
                             x = cx - 18f * spriteScale,
@@ -327,9 +296,17 @@ fun JudoBalanceScreen(
                             facingRight = state.cogOffset >= -0.05f,
                             onGround = true,
                             animTime = state.elapsed,
-                            animState = if (state.feedback == JudoFeedback.PERFECT || state.feedback == JudoFeedback.GOOD) {
-                                LainAnimState.INTERACTING
-                            } else LainAnimState.IDLE
+                            animState = when {
+                                state.ukemiPoseTimer > 0f -> LainAnimState.LANDING
+                                state.feedback == JudoFeedback.PERFECT || state.feedback == JudoFeedback.GOOD -> LainAnimState.INTERACTING
+                                else -> LainAnimState.IDLE
+                            },
+                            expression = when (state.feedback) {
+                                JudoFeedback.PERFECT, JudoFeedback.UKEMI_SAFE -> LainExpression.HAPPY
+                                JudoFeedback.MISS -> LainExpression.FOCUSED
+                                else -> LainExpression.FOCUSED
+                            },
+                            outfit = LainOutfit.JUDO_GI
                         )
                         drawLainGameSprite(
                             player = lainState,
@@ -345,11 +322,12 @@ fun JudoBalanceScreen(
                     val (fbText, fbColor) = when (state.feedback) {
                         JudoFeedback.PERFECT -> strings.judoPerfect to HarmonyJade
                         JudoFeedback.GOOD -> strings.judoGood to NaviCyan
+                        JudoFeedback.UKEMI_SAFE -> strings.judoUkemiSuccess to WiredViolet
                         JudoFeedback.MISS -> strings.judoMiss to SignalCoral
                         JudoFeedback.NONE -> "" to Color.Transparent
                     }
                     Surface(
-                        color = WiredVoid.copy(alpha = 0.82f),
+                        color = WiredVoid.copy(alpha = 0.84f),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .align(Alignment.TopCenter)
@@ -370,15 +348,15 @@ fun JudoBalanceScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(WiredVoid.copy(alpha = 0.80f)),
+                            .background(WiredVoid.copy(alpha = 0.82f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier
-                                .widthIn(max = 360.dp)
-                                .padding(20.dp)
+                                .widthIn(max = 380.dp)
+                                .padding(18.dp)
                         ) {
                             when (state.status) {
                                 JudoStatus.READY -> {
@@ -394,6 +372,19 @@ fun JudoBalanceScreen(
                                         color = TextSecondary,
                                         textAlign = TextAlign.Center
                                     )
+                                    Surface(
+                                        color = WiredSurface.copy(alpha = 0.9f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, WiredBorder)
+                                    ) {
+                                        Text(
+                                            text = strings.judoOriginalNote,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = TextMuted,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                        )
+                                    }
                                     Button(
                                         onClick = {
                                             onPlaySfx(SoundEffect.UI_TAP)
@@ -407,22 +398,9 @@ fun JudoBalanceScreen(
                                     }
                                 }
                                 JudoStatus.WON -> {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = strings.judoVictory,
-                                        tint = HarmonyJade,
-                                        modifier = Modifier.size(44.dp)
-                                    )
-                                    Text(
-                                        text = strings.judoVictory,
-                                        style = MaterialTheme.typography.headlineMedium,
-                                        color = HarmonyJade
-                                    )
-                                    Text(
-                                        text = "${state.score}",
-                                        style = MaterialTheme.typography.displayLarge,
-                                        color = NaviCyan
-                                    )
+                                    Icon(Icons.Default.CheckCircle, contentDescription = strings.judoVictory, tint = HarmonyJade, modifier = Modifier.size(44.dp))
+                                    Text(strings.judoVictory, style = MaterialTheme.typography.headlineMedium, color = HarmonyJade)
+                                    Text("${state.score}", style = MaterialTheme.typography.displayLarge, color = NaviCyan)
                                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         OutlinedButton(
                                             onClick = {
@@ -430,31 +408,18 @@ fun JudoBalanceScreen(
                                                 state = JudoBalanceEngine.start(state)
                                             },
                                             modifier = Modifier.heightIn(min = 48.dp)
-                                        ) {
-                                            Text(strings.replayLevel)
-                                        }
+                                        ) { Text(strings.replayLevel) }
                                         Button(
                                             onClick = { onVictory(state.score) },
                                             modifier = Modifier
                                                 .heightIn(min = 48.dp)
                                                 .testTag("judo_continue_button")
-                                        ) {
-                                            Text(strings.judoContinue)
-                                        }
+                                        ) { Text(strings.judoContinue) }
                                     }
                                 }
                                 JudoStatus.LOST -> {
-                                    Text(
-                                        text = strings.judoLostBalance,
-                                        style = MaterialTheme.typography.headlineMedium,
-                                        color = SignalCoral
-                                    )
-                                    Text(
-                                        text = strings.judoTrialGuides[trialId] ?: "",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = TextSecondary,
-                                        textAlign = TextAlign.Center
-                                    )
+                                    Text(strings.judoLostBalance, style = MaterialTheme.typography.headlineMedium, color = SignalCoral)
+                                    Text(strings.judoTrialGuides[trialId] ?: "", style = MaterialTheme.typography.bodyMedium, color = TextSecondary, textAlign = TextAlign.Center)
                                     Button(
                                         onClick = {
                                             victoryReported = false
@@ -463,9 +428,7 @@ fun JudoBalanceScreen(
                                         modifier = Modifier
                                             .heightIn(min = 48.dp)
                                             .testTag("judo_retry_button")
-                                    ) {
-                                        Text(strings.judoRetry)
-                                    }
+                                    ) { Text(strings.judoRetry) }
                                 }
                                 JudoStatus.ACTIVE -> Unit
                             }
@@ -474,10 +437,9 @@ fun JudoBalanceScreen(
                 }
             }
 
-            // Physical Left-to-Right controls (always LTR so Lean Left is physically left!)
+            // Physical Left-to-Right controls (always LTR)
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Balance Shift Controls
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -488,7 +450,7 @@ fun JudoBalanceScreen(
                             onPressedChanged = { leanLeft = it },
                             modifier = Modifier
                                 .weight(1f)
-                                .height(54.dp)
+                                .height(52.dp)
                                 .testTag("judo_lean_left")
                         )
                         HoldActionPad(
@@ -497,7 +459,7 @@ fun JudoBalanceScreen(
                             onPressedChanged = { braceCenter = it },
                             modifier = Modifier
                                 .weight(0.8f)
-                                .height(54.dp)
+                                .height(52.dp)
                                 .testTag("judo_brace")
                         )
                         HoldActionPad(
@@ -506,16 +468,15 @@ fun JudoBalanceScreen(
                             onPressedChanged = { leanRight = it },
                             modifier = Modifier
                                 .weight(1f)
-                                .height(54.dp)
+                                .height(52.dp)
                                 .testTag("judo_lean_right")
                         )
                     }
 
-                    // Kuzushi Redirect Buttons (shown on Trial II & III)
                     if (trialId != JudoTrialId.STILL_CENTER) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Button(
                                 onClick = { redirectLeftQueued = true },
@@ -526,12 +487,27 @@ fun JudoBalanceScreen(
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(54.dp)
+                                    .height(52.dp)
                                     .border(1.5.dp, DeskAmber.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
                                     .testTag("judo_redirect_left")
-                            ) {
-                                Text(strings.judoRedirectLeft, fontWeight = FontWeight.Bold)
+                            ) { Text(strings.judoRedirectLeft, fontWeight = FontWeight.Bold) }
+
+                            if (supportsUkemi) {
+                                Button(
+                                    onClick = { ukemiQueued = true },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = WiredViolet.copy(alpha = 0.26f),
+                                        contentColor = WiredViolet
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(52.dp)
+                                        .border(1.5.dp, WiredViolet.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+                                        .testTag("judo_ukemi_button")
+                                ) { Text(strings.judoUkemiAction, fontWeight = FontWeight.Bold) }
                             }
+
                             Button(
                                 onClick = { redirectRightQueued = true },
                                 colors = ButtonDefaults.buttonColors(
@@ -541,12 +517,10 @@ fun JudoBalanceScreen(
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(54.dp)
+                                    .height(52.dp)
                                     .border(1.5.dp, DeskAmber.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
                                     .testTag("judo_redirect_right")
-                            ) {
-                                Text(strings.judoRedirectRight, fontWeight = FontWeight.Bold)
-                            }
+                            ) { Text(strings.judoRedirectRight, fontWeight = FontWeight.Bold) }
                         }
                     }
                 }
@@ -563,10 +537,7 @@ private fun JudoGaugeBar(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(label, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
             Text("${(progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = color)
         }

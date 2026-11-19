@@ -3,10 +3,13 @@ package com.example.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.audio.AmbienceMood
 import com.example.audio.SoundEffect
 import com.example.audio.SoundEngine
 import com.example.data.*
 import com.example.game.engine.LevelCatalog
+import com.example.sandbox.SandboxPreset
+import com.example.sketch.StudioProject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +22,9 @@ sealed interface AppScreen {
     data class Gameplay(val levelId: String) : AppScreen
     data object Sketchbook : AppScreen
     data class JudoStandalone(val trialId: JudoTrialId) : AppScreen
+    data object LainDesktop : AppScreen
+    data class PhysicsSandbox(val preset: SandboxPreset = SandboxPreset.FREE_FALL) : AppScreen
+    data object PhysicsLab : AppScreen
     data object Achievements : AppScreen
     data object Settings : AppScreen
 }
@@ -37,14 +43,21 @@ class LainAppViewModel(application: Application) : AndroidViewModel(application)
     private val _settings = MutableStateFlow(storage.loadSettings())
     val settings: StateFlow<GameSettings> = _settings.asStateFlow()
 
-    private val _sketches = MutableStateFlow(storage.loadAllSketches())
-    val sketches: StateFlow<List<SketchDocument>> = _sketches.asStateFlow()
+    private val _studioProjects = MutableStateFlow<List<StudioProject>>(emptyList())
+    val studioProjects: StateFlow<List<StudioProject>> = _studioProjects.asStateFlow()
+
+    private val _studioAutosaveDraft = MutableStateFlow<StudioProject?>(null)
+    val studioAutosaveDraft: StateFlow<StudioProject?> = _studioAutosaveDraft.asStateFlow()
 
     private val _recentAchievement = MutableStateFlow<AchievementId?>(null)
     val recentAchievement: StateFlow<AchievementId?> = _recentAchievement.asStateFlow()
 
     init {
+        storage.migrateLegacySketchesIfNeeded()
+        _studioProjects.value = storage.loadAllStudioProjects()
+        _studioAutosaveDraft.value = storage.loadStudioAutosave()
         soundEngine.updateSettings(_settings.value)
+        soundEngine.setAmbienceMood(AmbienceMood.ROOM)
     }
 
     fun onAppResume() {
@@ -65,7 +78,33 @@ class LainAppViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun navigateTo(target: AppScreen) {
-        playSfx(SoundEffect.UI_TAP)
+        when (target) {
+            is AppScreen.LainDesktop -> {
+                playSfx(SoundEffect.DESKTOP_BOOT)
+                soundEngine.setAmbienceMood(AmbienceMood.WIRED)
+            }
+            is AppScreen.PhysicsSandbox -> {
+                playSfx(SoundEffect.UI_TAP)
+                soundEngine.setAmbienceMood(AmbienceMood.WIRED)
+                onSandboxOpened()
+            }
+            is AppScreen.PhysicsLab -> {
+                playSfx(SoundEffect.UI_TAP)
+                soundEngine.setAmbienceMood(AmbienceMood.SCHOOL)
+            }
+            is AppScreen.JudoStandalone -> {
+                playSfx(SoundEffect.UI_TAP)
+                soundEngine.setAmbienceMood(AmbienceMood.DOJO)
+            }
+            is AppScreen.Gameplay -> {
+                playSfx(SoundEffect.UI_TAP)
+                soundEngine.setAmbienceForWorld(LevelCatalog.worldForLevel(target.levelId))
+            }
+            else -> {
+                playSfx(SoundEffect.UI_TAP)
+                soundEngine.setAmbienceMood(AmbienceMood.ROOM)
+            }
+        }
         _screen.value = target
     }
 
@@ -78,16 +117,18 @@ class LainAppViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun startNewGame() {
-        val preservedSketchesCount = _progress.value.totalSketchesSaved
-        val preservedArtist = if (AchievementId.DIGITAL_ARTIST in _progress.value.unlockedAchievements) {
+        val cur = _progress.value
+        val preservedArtist = if (AchievementId.DIGITAL_ARTIST in cur.unlockedAchievements) {
             setOf(AchievementId.DIGITAL_ARTIST)
         } else emptySet()
         val fresh = SaveProgress(
+            schemaVersion = SaveProgress.CURRENT_SCHEMA_VERSION,
             hasStarted = true,
             currentLevelId = "1-1",
             unlockedWorlds = setOf(WorldId.LAINS_ROOM),
             unlockedAchievements = preservedArtist,
-            totalSketchesSaved = preservedSketchesCount
+            totalSketchesSaved = cur.totalSketchesSaved,
+            completedLabQuizzes = cur.completedLabQuizzes
         )
         persistProgress(fresh)
         navigateTo(AppScreen.Gameplay("1-1"))
@@ -120,6 +161,9 @@ class LainAppViewModel(application: Application) : AndroidViewModel(application)
         if (nextId != null) {
             newWorlds.add(LevelCatalog.worldForLevel(nextId))
         }
+        // Keep progression welcoming: finishing 1-1 unlocks Family Home; finishing 1-2 unlocks Gravity too
+        if (levelId == "1-1") newWorlds.add(WorldId.FAMILY_HOME)
+        if (levelId == "1-2") newWorlds.add(WorldId.GRAVITY)
 
         val updated = evaluateAchievements(
             cur.copy(
@@ -146,22 +190,63 @@ class LainAppViewModel(application: Application) : AndroidViewModel(application)
         persistProgress(updated)
     }
 
-    fun saveSketch(doc: SketchDocument) {
-        val ok = storage.saveSketch(doc)
-        if (ok) {
-            _sketches.value = storage.loadAllSketches()
+    fun saveStudioProject(project: StudioProject) {
+        if (storage.saveStudioProject(project)) {
+            storage.clearStudioAutosave()
+            _studioAutosaveDraft.value = null
+            _studioProjects.value = storage.loadAllStudioProjects()
             val cur = _progress.value
             val updated = evaluateAchievements(
                 cur.copy(totalSketchesSaved = cur.totalSketchesSaved + 1)
             )
             persistProgress(updated)
+            playSfx(SoundEffect.CHECKPOINT)
         }
     }
 
-    fun deleteSketch(id: String) {
-        if (storage.deleteSketch(id)) {
-            _sketches.value = storage.loadAllSketches()
+    fun autosaveStudioProject(project: StudioProject) {
+        storage.saveStudioAutosave(project)
+        _studioAutosaveDraft.value = project
+    }
+
+    fun duplicateStudioProject(source: StudioProject) {
+        val copy = storage.duplicateStudioProject(source, "${source.title} (Copy)")
+        if (copy != null) {
+            _studioProjects.value = storage.loadAllStudioProjects()
+            playSfx(SoundEffect.UI_TAP)
         }
+    }
+
+    fun deleteStudioProject(id: String) {
+        if (storage.deleteStudioProject(id)) {
+            _studioProjects.value = storage.loadAllStudioProjects()
+            playSfx(SoundEffect.UI_TAP)
+        }
+    }
+
+    fun markMessageRead(messageId: String) {
+        val cur = _progress.value
+        if (messageId in cur.readMessageIds) return
+        val updated = evaluateAchievements(
+            cur.copy(readMessageIds = cur.readMessageIds + messageId)
+        )
+        persistProgress(updated)
+    }
+
+    fun onLabQuizCompleted(quizId: String) {
+        val cur = _progress.value
+        if (quizId in cur.completedLabQuizzes) return
+        val updated = cur.copy(completedLabQuizzes = cur.completedLabQuizzes + quizId)
+        persistProgress(updated)
+        playSfx(SoundEffect.CHECKPOINT)
+    }
+
+    fun onSandboxOpened() {
+        val cur = _progress.value
+        val updated = evaluateAchievements(
+            cur.copy(openedSandboxCount = cur.openedSandboxCount + 1)
+        )
+        persistProgress(updated)
     }
 
     fun updateSettings(newSettings: GameSettings) {
@@ -196,6 +281,13 @@ class LainAppViewModel(application: Application) : AndroidViewModel(application)
         grant(AchievementId.MEMORY_SEEKER, p.totalShardsCollected() >= 15)
         grant(AchievementId.BEYOND_REALITY, "6-2" in p.completedLevels)
         grant(AchievementId.COMPLETE_ARCHIVE, p.completedLevels.size >= LevelCatalog.allLevels.size)
+        grant(
+            AchievementId.CITY_WANDERER,
+            setOf("H-1", "S-1", "C-1", "Y-1").all { it in p.completedLevels }
+        )
+        grant(AchievementId.NAVI_OPERATOR, p.readMessageIds.isNotEmpty())
+        grant(AchievementId.SANDBOX_SCIENTIST, p.openedSandboxCount >= 1)
+        grant(AchievementId.UKEMI_ADEPT, JudoTrialId.UKEMI_REACTION in p.completedJudoTrials)
 
         if (newlyUnlocked.isNotEmpty()) {
             showAchievementToast(newlyUnlocked.first())

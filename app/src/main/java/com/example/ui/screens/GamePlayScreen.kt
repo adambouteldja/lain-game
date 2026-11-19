@@ -26,28 +26,30 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.example.audio.SoundEffect
-import com.example.data.ControlSize
-import com.example.data.GameSettings
-import com.example.data.JudoTrialId
-import com.example.data.SaveProgress
+import com.example.data.*
 import com.example.game.engine.LevelCatalog
 import com.example.game.engine.PhysicsEngine
 import com.example.game.model.GameEvent
 import com.example.game.model.InputState
+import com.example.game.model.LainExpression
 import com.example.game.render.GameWorldCanvas
 import com.example.game.render.LainSpriteRenderer.drawLainPortrait
 import com.example.i18n.LocalStrings
 import com.example.judo.JudoBalanceScreen
 import com.example.ui.theme.*
+import kotlin.math.abs
 
 @Composable
 fun GamePlayScreen(
@@ -60,24 +62,41 @@ fun GamePlayScreen(
     onJudoTrialCompleted: (JudoTrialId, Int) -> Unit,
     onLevelCompleted: (levelId: String, collectedShardIds: Set<String>) -> Unit,
     onSelectNextLevel: (String) -> Unit,
+    onOpenDesktop: () -> Unit,
     onExitToWorlds: () -> Unit,
     onExitToMenu: () -> Unit
 ) {
     val strings = LocalStrings.current
+    val haptic = LocalHapticFeedback.current
     val levelDef = remember(levelId) { LevelCatalog.levelById(levelId) }
+    val activeOutfit = remember(levelId, settings.autoOutfitByLocation, settings.preferredOutfit) {
+        if (settings.autoOutfitByLocation) {
+            LevelCatalog.defaultOutfitForWorld(levelDef.worldId)
+        } else {
+            settings.preferredOutfit
+        }
+    }
 
     var runtimeState by remember(levelId) {
         mutableStateOf(
             PhysicsEngine.createInitialState(
                 def = levelDef,
                 alreadyCollectedShards = progress.collectedShardsByLevel[levelId].orEmpty(),
-                completedJudoTrials = progress.completedJudoTrials
+                completedJudoTrials = progress.completedJudoTrials,
+                outfit = activeOutfit
             )
         )
     }
 
+    LaunchedEffect(activeOutfit) {
+        if (runtimeState.player.outfit != activeOutfit) {
+            runtimeState = PhysicsEngine.updatePlayerOutfit(runtimeState, activeOutfit)
+        }
+    }
+
     var isPaused by remember(levelId) { mutableStateOf(false) }
     var showStoryCard by remember(levelId) { mutableStateOf(true) }
+    var showHintDialog by remember(levelId) { mutableStateOf(false) }
     var inkDrawMode by remember(levelId) { mutableStateOf(false) }
     var levelCompletionReported by remember(levelId) { mutableStateOf(false) }
 
@@ -85,18 +104,36 @@ fun GamePlayScreen(
     var viewportW by remember { mutableFloatStateOf(800f) }
     var viewportH by remember { mutableFloatStateOf(480f) }
 
-    // Multi-touch input flags
+    // Multi-touch & virtual analog joystick input flags
     var moveLeft by remember { mutableStateOf(false) }
     var moveRight by remember { mutableStateOf(false) }
+    var analogX by remember { mutableFloatStateOf(0f) }
     var jumpHeld by remember { mutableStateOf(false) }
     var jumpJustPressed by remember { mutableStateOf(false) }
     var interactJustPressed by remember { mutableStateOf(false) }
 
+    // Navigate to Lain Desktop if requested by Navi Desk interaction in Level 1-1
+    LaunchedEffect(runtimeState.requestOpenDesktop) {
+        if (runtimeState.requestOpenDesktop) {
+            runtimeState = PhysicsEngine.clearDesktopRequest(runtimeState)
+            onOpenDesktop()
+        }
+    }
+
     BackHandler {
-        if (runtimeState.pendingJudoTrial != null) {
-            runtimeState = PhysicsEngine.dismissPendingJudo(runtimeState)
-        } else {
-            isPaused = !isPaused
+        when {
+            runtimeState.pendingJudoTrial != null -> {
+                runtimeState = PhysicsEngine.dismissPendingJudo(runtimeState)
+            }
+            runtimeState.activeDialogueNpc != null -> {
+                runtimeState = PhysicsEngine.dismissDialogue(runtimeState)
+            }
+            showHintDialog -> {
+                showHintDialog = false
+            }
+            else -> {
+                isPaused = !isPaused
+            }
         }
     }
 
@@ -119,10 +156,10 @@ fun GamePlayScreen(
     }
 
     // 60 FPS Fixed-clamped Game Loop
-    LaunchedEffect(levelId, isPaused, runtimeState.isCompleted, activeJudoTrial) {
-        if (isPaused || runtimeState.isCompleted || activeJudoTrial != null) return@LaunchedEffect
+    LaunchedEffect(levelId, isPaused, showHintDialog, runtimeState.isCompleted, activeJudoTrial) {
+        if (isPaused || showHintDialog || runtimeState.isCompleted || activeJudoTrial != null) return@LaunchedEffect
         var lastNanos = withFrameNanos { it }
-        while (!isPaused && !runtimeState.isCompleted && runtimeState.pendingJudoTrial == null) {
+        while (!isPaused && !showHintDialog && !runtimeState.isCompleted && runtimeState.pendingJudoTrial == null) {
             val now = withFrameNanos { it }
             val dt = ((now - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.033f)
             lastNanos = now
@@ -130,6 +167,7 @@ fun GamePlayScreen(
             val input = InputState(
                 moveLeft = moveLeft,
                 moveRight = moveRight,
+                analogX = if (settings.controlMode == ControlMode.JOYSTICK) analogX else 0f,
                 jumpPressed = jumpHeld,
                 jumpJustPressed = jumpJustPressed,
                 interactJustPressed = interactJustPressed
@@ -146,21 +184,32 @@ fun GamePlayScreen(
                 viewportH = viewportH
             )
 
-            // Process game events (audio + persistence)
+            // Process game events (audio + subtle haptics + persistence)
             next.events.forEach { ev ->
                 when (ev) {
-                    GameEvent.JUMPED -> onPlaySfx(SoundEffect.JUMP)
+                    GameEvent.JUMPED -> {
+                        onPlaySfx(SoundEffect.JUMP)
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
                     GameEvent.LANDED -> onPlaySfx(SoundEffect.LAND)
-                    GameEvent.SHARD_COLLECTED -> onPlaySfx(SoundEffect.SHARD)
+                    GameEvent.SHARD_COLLECTED -> {
+                        onPlaySfx(SoundEffect.SHARD)
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
                     GameEvent.SWITCH_TRIGGERED,
                     GameEvent.GRAVITY_FLIPPED,
                     GameEvent.MAGNET_TOGGLED,
-                    GameEvent.MIRROR_ROTATED -> onPlaySfx(SoundEffect.SWITCH)
+                    GameEvent.MIRROR_ROTATED -> {
+                        onPlaySfx(SoundEffect.SWITCH)
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
                     GameEvent.CHECKPOINT_SAVED -> onPlaySfx(SoundEffect.CHECKPOINT)
                     GameEvent.DOOR_OPENED -> onPlaySfx(SoundEffect.CHECKPOINT)
                     GameEvent.RESPAWNED -> onPlaySfx(SoundEffect.ERROR)
                     GameEvent.LEVEL_COMPLETED -> onPlaySfx(SoundEffect.PORTAL)
                     GameEvent.INK_PLATFORM_CREATED -> onPlaySfx(SoundEffect.INK_DRAW)
+                    GameEvent.NPC_TALKED -> onPlaySfx(SoundEffect.UI_TAP)
+                    GameEvent.DESKTOP_OPENED -> onPlaySfx(SoundEffect.DESKTOP_BOOT)
                 }
             }
 
@@ -184,15 +233,20 @@ fun GamePlayScreen(
         ControlSize.STANDARD -> 66.dp
         ControlSize.LARGE -> 76.dp
     }
+    val edgePad = settings.controlHorizontalPaddingDp.coerceIn(4f, 36f).dp
+    val bottomLift = settings.controlBottomOffsetDp.coerceIn(0f, 36f).dp
 
     fun restartCurrentLevel() {
         isPaused = false
+        showHintDialog = false
         inkDrawMode = false
         levelCompletionReported = false
+        analogX = 0f
         runtimeState = PhysicsEngine.createInitialState(
             def = levelDef,
             alreadyCollectedShards = progress.collectedShardsByLevel[levelId].orEmpty(),
-            completedJudoTrials = progress.completedJudoTrials
+            completedJudoTrials = progress.completedJudoTrials,
+            outfit = activeOutfit
         )
         onPlaySfx(SoundEffect.UI_TAP)
     }
@@ -205,7 +259,6 @@ fun GamePlayScreen(
         val isLandscape = maxWidth > maxHeight
 
         if (isLandscape) {
-            // LANDSCAPE: Full-bleed wide viewport + translucent controls in corners
             Box(modifier = Modifier.fillMaxSize()) {
                 GameWorldCanvas(
                     state = runtimeState,
@@ -222,7 +275,6 @@ fun GamePlayScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Top HUD
                 GameplayTopHud(
                     levelId = levelId,
                     state = runtimeState,
@@ -230,6 +282,7 @@ fun GamePlayScreen(
                     inkDrawMode = inkDrawMode,
                     onToggleInkMode = { inkDrawMode = !inkDrawMode },
                     onClearInk = { runtimeState = PhysicsEngine.clearInkBridges(runtimeState) },
+                    onOpenHint = { showHintDialog = true },
                     onToggleMute = onToggleMute,
                     onRestart = { restartCurrentLevel() },
                     onPause = { isPaused = true },
@@ -239,10 +292,10 @@ fun GamePlayScreen(
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 )
 
-                // Story Whisper Banner
                 StoryWhisperOverlay(
-                    visible = showStoryCard && !isPaused && !runtimeState.isCompleted,
+                    visible = showStoryCard && !isPaused && !runtimeState.isCompleted && runtimeState.activeDialogueNpc == null,
                     levelId = levelId,
+                    outfit = activeOutfit,
                     elapsedTime = runtimeState.elapsedTime,
                     onDismiss = { showStoryCard = false },
                     modifier = Modifier
@@ -251,13 +304,14 @@ fun GamePlayScreen(
                         .padding(top = 60.dp, start = 20.dp, end = 20.dp)
                 )
 
-                // Translucent Bottom-Corner Controls
                 GameplayTouchControls(
                     buttonSize = buttonSize,
+                    controlMode = settings.controlMode,
                     isTranslucent = true,
                     interactHighlighted = runtimeState.nearbyInteractLabel != null,
                     onLeftChange = { moveLeft = it },
                     onRightChange = { moveRight = it },
+                    onAnalogXChange = { analogX = it },
                     onJumpChange = { pressed ->
                         if (pressed && !jumpHeld) jumpJustPressed = true
                         jumpHeld = pressed
@@ -267,11 +321,10 @@ fun GamePlayScreen(
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .windowInsetsPadding(WindowInsets.safeDrawing)
-                        .padding(horizontal = 18.dp, vertical = 10.dp)
+                        .padding(start = edgePad, end = edgePad, bottom = bottomLift + 8.dp)
                 )
             }
         } else {
-            // PORTRAIT: Top crisp viewport + zero-occlusion bottom ergonomic thumb deck
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -304,6 +357,7 @@ fun GamePlayScreen(
                         inkDrawMode = inkDrawMode,
                         onToggleInkMode = { inkDrawMode = !inkDrawMode },
                         onClearInk = { runtimeState = PhysicsEngine.clearInkBridges(runtimeState) },
+                        onOpenHint = { showHintDialog = true },
                         onToggleMute = onToggleMute,
                         onRestart = { restartCurrentLevel() },
                         onPause = { isPaused = true },
@@ -313,8 +367,9 @@ fun GamePlayScreen(
                     )
 
                     StoryWhisperOverlay(
-                        visible = showStoryCard && !isPaused && !runtimeState.isCompleted,
+                        visible = showStoryCard && !isPaused && !runtimeState.isCompleted && runtimeState.activeDialogueNpc == null,
                         levelId = levelId,
+                        outfit = activeOutfit,
                         elapsedTime = runtimeState.elapsedTime,
                         onDismiss = { showStoryCard = false },
                         modifier = Modifier
@@ -333,7 +388,12 @@ fun GamePlayScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                            .padding(
+                                start = edgePad,
+                                end = edgePad,
+                                top = 12.dp,
+                                bottom = 12.dp + bottomLift
+                            ),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (inkDrawMode && runtimeState.definition.allowInkDrawing) {
@@ -347,16 +407,92 @@ fun GamePlayScreen(
                         }
                         GameplayTouchControls(
                             buttonSize = buttonSize,
+                            controlMode = settings.controlMode,
                             isTranslucent = false,
                             interactHighlighted = runtimeState.nearbyInteractLabel != null,
                             onLeftChange = { moveLeft = it },
                             onRightChange = { moveRight = it },
+                            onAnalogXChange = { analogX = it },
                             onJumpChange = { pressed ->
                                 if (pressed && !jumpHeld) jumpJustPressed = true
                                 jumpHeld = pressed
                             },
                             onInteractPress = { interactJustPressed = true },
                             modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
+
+        // Story NPC Dialogue Banner
+        val dialogueNpc = runtimeState.activeDialogueNpc
+        AnimatedVisibility(
+            visible = dialogueNpc != null && !isPaused && !runtimeState.isCompleted,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 16.dp, vertical = 110.dp)
+        ) {
+            if (dialogueNpc != null) {
+                Surface(
+                    color = WiredSurface.copy(alpha = 0.96f),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 560.dp)
+                        .border(1.5.dp, NaviCyan.copy(alpha = 0.75f), RoundedCornerShape(16.dp))
+                        .clickable { runtimeState = PhysicsEngine.dismissDialogue(runtimeState) }
+                        .testTag("npc_dialogue_card")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(Color(dialogueNpc.outfitColorArgb))
+                                .border(1.5.dp, NaviCyan, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = TextPrimary)
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = strings.npcTexts[dialogueNpc.nameKey] ?: dialogueNpc.id,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = NaviCyan,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (dialogueNpc.isCanon) strings.canonTag else strings.originalTag,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = DeskAmber
+                                )
+                            }
+                            Text(
+                                text = strings.npcTexts[dialogueNpc.dialogueKey] ?: "",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextPrimary
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = strings.close,
+                            tint = TextMuted,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
@@ -398,6 +534,61 @@ fun GamePlayScreen(
             }
         }
 
+        // Persistent HUD Hint Overlay
+        if (showHintDialog) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(WiredVoid.copy(alpha = 0.78f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    color = WiredSurface,
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier
+                        .widthIn(min = 280.dp, max = 380.dp)
+                        .padding(20.dp)
+                        .border(1.dp, DeskAmber.copy(alpha = 0.65f), RoundedCornerShape(20.dp))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Lightbulb, contentDescription = null, tint = DeskAmber)
+                            Text(
+                                text = "${strings.hintTitle} — $levelId",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = DeskAmber
+                            )
+                        }
+                        Text(
+                            text = strings.levelTitles[levelId] ?: levelId,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = NaviCyan
+                        )
+                        Text(
+                            text = strings.levelHints[levelId] ?: "",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary
+                        )
+                        Button(
+                            onClick = { showHintDialog = false },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("hint_dialog_close")
+                        ) {
+                            Text(strings.ok)
+                        }
+                    }
+                }
+            }
+        }
+
         // Pause Overlay Dialog
         if (isPaused) {
             Box(
@@ -421,7 +612,7 @@ fun GamePlayScreen(
                     ) {
                         Text(strings.paused, style = MaterialTheme.typography.headlineMedium, color = NaviCyan)
                         Text(
-                            text = "${levelId} — ${strings.levelTitles[levelId] ?: ""}",
+                            text = "$levelId — ${strings.levelTitles[levelId] ?: ""}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = TextSecondary
                         )
@@ -552,6 +743,7 @@ private fun GameplayTopHud(
     inkDrawMode: Boolean,
     onToggleInkMode: () -> Unit,
     onClearInk: () -> Unit,
+    onOpenHint: () -> Unit,
     onToggleMute: () -> Unit,
     onRestart: () -> Unit,
     onPause: () -> Unit,
@@ -564,33 +756,40 @@ private fun GameplayTopHud(
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // Left: Level badge + Shards
+        // Left: Level badge + Shards (gracefully ellipsizes on narrow portrait screens)
         Surface(
             color = WiredSurface.copy(alpha = 0.85f),
             shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.border(1.dp, WiredBorder, RoundedCornerShape(12.dp))
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .border(1.dp, WiredBorder, RoundedCornerShape(12.dp))
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
                     text = "$levelId • ${strings.levelTitles[levelId] ?: ""}",
                     style = MaterialTheme.typography.labelLarge,
-                    color = NaviCyan
+                    color = NaviCyan,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
                 Text(
                     text = "◆ $collected/$total",
                     style = MaterialTheme.typography.labelLarge,
-                    color = DeskAmber
+                    color = DeskAmber,
+                    maxLines = 1
                 )
             }
         }
+        Spacer(modifier = Modifier.weight(0.001f))
 
-        // Right: Ink Bridge controls (when allowed) + Mute + Restart + Pause
+        // Right: Ink Bridge controls + Hint + Mute + Restart + Pause
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -623,6 +822,13 @@ private fun GameplayTopHud(
                 }
             }
             HudIconButton(
+                icon = Icons.Default.Lightbulb,
+                contentDesc = strings.hudHintButton,
+                tint = DeskAmber,
+                onClick = onOpenHint,
+                tag = "hud_hint_button"
+            )
+            HudIconButton(
                 icon = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                 contentDesc = strings.muteAll,
                 onClick = onToggleMute,
@@ -648,19 +854,20 @@ private fun GameplayTopHud(
 private fun HudIconButton(
     icon: ImageVector,
     contentDesc: String,
+    tint: Color = TextPrimary,
     onClick: () -> Unit,
     tag: String
 ) {
     IconButton(
         onClick = onClick,
         modifier = Modifier
-            .size(44.dp)
+            .size(42.dp)
             .clip(CircleShape)
             .background(WiredSurface.copy(alpha = 0.82f))
             .border(1.dp, WiredBorder, CircleShape)
             .testTag(tag)
     ) {
-        Icon(imageVector = icon, contentDescription = contentDesc, tint = TextPrimary, modifier = Modifier.size(20.dp))
+        Icon(imageVector = icon, contentDescription = contentDesc, tint = tint, modifier = Modifier.size(19.dp))
     }
 }
 
@@ -668,6 +875,7 @@ private fun HudIconButton(
 private fun StoryWhisperOverlay(
     visible: Boolean,
     levelId: String,
+    outfit: LainOutfit,
     elapsedTime: Float,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
@@ -698,7 +906,9 @@ private fun StoryWhisperOverlay(
                     drawLainPortrait(
                         center = Offset(size.width * 0.5f, size.height * 0.5f),
                         radius = size.minDimension * 0.48f,
-                        timeSec = elapsedTime
+                        timeSec = elapsedTime,
+                        outfit = outfit,
+                        expression = LainExpression.CURIOUS
                     )
                 }
                 Column(
@@ -736,10 +946,12 @@ private fun StoryWhisperOverlay(
 @Composable
 private fun GameplayTouchControls(
     buttonSize: Dp,
+    controlMode: ControlMode,
     isTranslucent: Boolean,
     interactHighlighted: Boolean,
     onLeftChange: (Boolean) -> Unit,
     onRightChange: (Boolean) -> Unit,
+    onAnalogXChange: (Float) -> Unit,
     onJumpChange: (Boolean) -> Unit,
     onInteractPress: () -> Unit,
     modifier: Modifier = Modifier
@@ -747,42 +959,51 @@ private fun GameplayTouchControls(
     val strings = LocalStrings.current
     val baseAlpha = if (isTranslucent) 0.68f else 0.96f
 
-    // Force physical LTR layout so Left button is ALWAYS on the physical left side
+    // Force physical LTR layout so movement is ALWAYS on the left and Jump/Act on the right
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Row(
             modifier = modifier,
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left & Right Movement Pad
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                MultiTouchControlButton(
-                    size = buttonSize,
-                    accent = NaviCyan,
+            if (controlMode == ControlMode.JOYSTICK) {
+                VirtualAnalogStick(
+                    diameter = buttonSize * 1.95f,
                     baseAlpha = baseAlpha,
-                    onHoldChange = onLeftChange,
-                    modifier = Modifier.testTag("control_left")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                        contentDescription = strings.btnLeftDesc,
-                        tint = TextPrimary,
-                        modifier = Modifier.size(34.dp)
-                    )
-                }
-                MultiTouchControlButton(
-                    size = buttonSize,
-                    accent = NaviCyan,
-                    baseAlpha = baseAlpha,
-                    onHoldChange = onRightChange,
-                    modifier = Modifier.testTag("control_right")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = strings.btnRightDesc,
-                        tint = TextPrimary,
-                        modifier = Modifier.size(34.dp)
-                    )
+                    onAxisXChange = onAnalogXChange,
+                    modifier = Modifier.testTag("control_joystick")
+                )
+            } else {
+                // Left & Right Movement Pad
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    MultiTouchControlButton(
+                        size = buttonSize,
+                        accent = NaviCyan,
+                        baseAlpha = baseAlpha,
+                        onHoldChange = onLeftChange,
+                        modifier = Modifier.testTag("control_left")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = strings.btnLeftDesc,
+                            tint = TextPrimary,
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
+                    MultiTouchControlButton(
+                        size = buttonSize,
+                        accent = NaviCyan,
+                        baseAlpha = baseAlpha,
+                        onHoldChange = onRightChange,
+                        modifier = Modifier.testTag("control_right")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = strings.btnRightDesc,
+                            tint = TextPrimary,
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
                 }
             }
 
@@ -821,6 +1042,75 @@ private fun GameplayTouchControls(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun VirtualAnalogStick(
+    diameter: Dp,
+    baseAlpha: Float,
+    onAxisXChange: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var knobFractionX by remember { mutableFloatStateOf(0f) }
+
+    Box(
+        modifier = modifier
+            .size(diameter, diameter * 0.62f)
+            .clip(RoundedCornerShape(48.dp))
+            .background(WiredSurface.copy(alpha = baseAlpha))
+            .border(1.5.dp, NaviCyan.copy(alpha = 0.72f), RoundedCornerShape(48.dp))
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val halfW = (size.width * 0.42f).coerceAtLeast(1f)
+                    val centerX = size.width * 0.5f
+
+                    fun update(px: Float) {
+                        val raw = ((px - centerX) / halfW).coerceIn(-1f, 1f)
+                        val deadzone = if (abs(raw) < 0.12f) 0f else raw
+                        knobFractionX = deadzone
+                        onAxisXChange(deadzone)
+                    }
+
+                    update(down.position.x)
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                        if (change == null || !change.pressed) {
+                            knobFractionX = 0f
+                            onAxisXChange(0f)
+                            break
+                        }
+                        update(change.position.x)
+                        change.consume()
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val cy = size.height * 0.5f
+            val cx = size.width * 0.5f
+            val maxShift = size.width * 0.30f
+            drawLine(
+                color = NaviCyan.copy(alpha = 0.25f),
+                start = Offset(cx - maxShift, cy),
+                end = Offset(cx + maxShift, cy),
+                strokeWidth = 6f
+            )
+            val knobX = cx + knobFractionX * maxShift
+            drawCircle(
+                color = NaviCyan.copy(alpha = 0.35f),
+                radius = size.height * 0.38f,
+                center = Offset(knobX, cy)
+            )
+            drawCircle(
+                color = NaviCyan,
+                radius = size.height * 0.28f,
+                center = Offset(knobX, cy)
+            )
         }
     }
 }

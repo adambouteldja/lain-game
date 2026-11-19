@@ -1,35 +1,37 @@
 package com.example.game.engine
 
 import com.example.data.JudoTrialId
+import com.example.data.LainOutfit
 import com.example.game.model.*
 import kotlin.math.*
 
 /**
- * Pure Kotlin deterministic 2D physics & puzzle engine.
- * Handles gravity (normal/inverted/low-G), momentum, surface friction,
- * AABB collisions, moving platforms, tilting balance beams, pushable boxes,
- * magnetic coils, light-beam raycasting with mirrors, switches, doors, and checkpoints.
+ * Pure Kotlin deterministic 2D physics & puzzle engine (Evolution 2.0).
+ * Supports gravity (normal/inverted/low-G), proportional analog + digital controls,
+ * surface friction, sloped drawn ink bridges, tilting balance beams, pushable &
+ * magnetic boxes, light-beam mirrors, interactive Story NPCs, and Navi Desktop access.
  */
 object PhysicsEngine {
 
     private const val GRAVITY_NORMAL = 1480f
     private const val GRAVITY_LOW = 620f
-    private const val MOVE_ACCEL_GROUND = 2200f
-    private const val MOVE_ACCEL_AIR = 1350f
-    private const val MOVE_ACCEL_ICE = 780f
-    private const val MAX_RUN_SPEED = 290f
-    private const val JUMP_VELOCITY = 610f
+    private const val MOVE_ACCEL_GROUND = 2280f
+    private const val MOVE_ACCEL_AIR = 1380f
+    private const val MOVE_ACCEL_ICE = 790f
+    private const val MAX_RUN_SPEED = 296f
+    private const val JUMP_VELOCITY = 615f
     private const val MAX_FALL_SPEED = 860f
-    private const val COYOTE_TIME = 0.12f
-    private const val JUMP_BUFFER_TIME = 0.12f
+    private const val COYOTE_TIME = 0.13f
+    private const val JUMP_BUFFER_TIME = 0.13f
     private const val MAX_DRAWN_BRIDGES = 3
 
     fun createInitialState(
         def: LevelDefinition,
         alreadyCollectedShards: Set<String> = emptySet(),
-        completedJudoTrials: Set<JudoTrialId> = emptySet()
+        completedJudoTrials: Set<JudoTrialId> = emptySet(),
+        outfit: LainOutfit = LevelCatalog.defaultOutfitForWorld(def.worldId)
     ): LevelRuntimeState {
-        val player = PlayerState(x = def.spawn.x, y = def.spawn.y)
+        val player = PlayerState(x = def.spawn.x, y = def.spawn.y, outfit = outfit)
         val shards = def.shards.map { s ->
             if (s.id in alreadyCollectedShards) s.copy(collected = true) else s
         }
@@ -58,25 +60,33 @@ object PhysicsEngine {
 
     fun addInkBridge(state: LevelRuntimeState, p1: Vec2, p2: Vec2): LevelRuntimeState {
         if (!state.definition.allowInkDrawing) return state
-        val dx = p2.x - p1.x
-        val dy = p2.y - p1.y
+        // Normalize endpoints left-to-right so slope angle stays in [-28, +28] degrees
+        val leftPt = if (p1.x <= p2.x) p1 else p2
+        val rightPt = if (p1.x <= p2.x) p2 else p1
+        val dx = rightPt.x - leftPt.x
+        val dy = rightPt.y - leftPt.y
         val dist = hypot(dx, dy)
         if (dist < 42f) return state
 
         val clampedW = dist.coerceIn(54f, 240f)
-        val cx = (p1.x + p2.x) * 0.5f
-        val cy = (p1.y + p2.y) * 0.5f
+        val rawDeg = if (abs(dx) < 8f) 0f else Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
+        // Treat nearly flat strokes (<4 deg) as crisp flat bridges; otherwise preserve real ramp slope
+        val angleDeg = if (abs(rawDeg) < 4f) 0f else rawDeg.coerceIn(-28f, 28f)
+        val cx = (leftPt.x + rightPt.x) * 0.5f
+        val cy = (leftPt.y + rightPt.y) * 0.5f
+
         val newPlat = Platform(
             id = "ink_${System.nanoTime()}",
             x = (cx - clampedW * 0.5f).coerceIn(12f, state.definition.worldWidth - clampedW - 12f),
-            y = (cy - 9f).coerceIn(24f, state.definition.worldHeight - 40f),
+            y = (cy - 9f).coerceIn(28f, state.definition.worldHeight - 40f),
             width = clampedW,
             height = 18f,
-            type = PlatformType.DRAWN_INK
+            type = PlatformType.DRAWN_INK,
+            tiltAngleDeg = angleDeg
         )
         // Avoid spawning directly trapping Lain inside the bridge
         val pBounds = state.player.bounds()
-        val adjustedPlat = if (newPlat.bounds().overlaps(pBounds)) {
+        val adjustedPlat = if (newPlat.bounds().overlaps(pBounds) && abs(angleDeg) < 1f) {
             newPlat.copy(y = pBounds.bottom + 2f)
         } else newPlat
 
@@ -108,6 +118,15 @@ object PhysicsEngine {
     fun dismissPendingJudo(state: LevelRuntimeState): LevelRuntimeState =
         state.copy(pendingJudoTrial = null)
 
+    fun dismissDialogue(state: LevelRuntimeState): LevelRuntimeState =
+        state.copy(activeDialogueNpc = null)
+
+    fun clearDesktopRequest(state: LevelRuntimeState): LevelRuntimeState =
+        state.copy(requestOpenDesktop = false)
+
+    fun updatePlayerOutfit(state: LevelRuntimeState, outfit: LainOutfit): LevelRuntimeState =
+        state.copy(player = state.player.copy(outfit = outfit))
+
     fun step(
         state: LevelRuntimeState,
         input: InputState,
@@ -115,7 +134,9 @@ object PhysicsEngine {
         viewportW: Float = 820f,
         viewportH: Float = 480f
     ): LevelRuntimeState {
-        if (state.isCompleted || state.pendingJudoTrial != null) {
+        if (state.isCompleted || state.pendingJudoTrial != null ||
+            state.activeDialogueNpc != null || state.requestOpenDesktop
+        ) {
             return state.copy(events = emptyList())
         }
 
@@ -151,7 +172,6 @@ object PhysicsEngine {
                     )
                 }
                 PlatformType.TILTING_BEAM -> {
-                    // Compute torque from player and crates standing on beam
                     val pivotX = plat.x + plat.width * 0.5f
                     var torque = 0f
                     val pb = state.player.bounds()
@@ -168,7 +188,6 @@ object PhysicsEngine {
                             torque += ((bb.centerX - pivotX) / (plat.width * 0.5f)) * 68f * box.mass
                         }
                     }
-                    // Spring restoring torque + damping
                     val springK = -2.2f * plat.tiltAngleDeg
                     val damping = -2.8f * plat.tiltAngularVel
                     val newVel = plat.tiltAngularVel + (torque + springK + damping) * clampedDt
@@ -191,7 +210,7 @@ object PhysicsEngine {
         }
 
         // 2. Player Gravity Zone check
-        var player = state.player
+        val player = state.player
         val pBoundsNow = player.bounds()
         var inLowG = false
         var inInvertedZone = false
@@ -207,37 +226,44 @@ object PhysicsEngine {
         val gravSign = if (effectiveInverted) -1f else 1f
         val gravMag = if (inLowG) GRAVITY_LOW else GRAVITY_NORMAL
 
-        // 3. Player horizontal input & friction
+        // 3. Player horizontal input (supports both virtual analog joystick and digital buttons)
         val accel = when {
             !player.onGround -> MOVE_ACCEL_AIR
             player.currentSurfaceType == PlatformType.ICE -> MOVE_ACCEL_ICE
             else -> MOVE_ACCEL_GROUND
         }
+        val rawAxis = when {
+            abs(input.analogX) > 0.08f -> input.analogX.coerceIn(-1f, 1f)
+            input.moveLeft && !input.moveRight -> -1f
+            input.moveRight && !input.moveLeft -> 1f
+            else -> 0f
+        }
+
         var vx = player.vx
         var facingRight = player.facingRight
-        when {
-            input.moveLeft && !input.moveRight -> {
-                vx -= accel * clampedDt
-                facingRight = false
-            }
-            input.moveRight && !input.moveLeft -> {
-                vx += accel * clampedDt
-                facingRight = true
-            }
-            else -> {
-                val friction = when {
-                    !player.onGround -> 0.94f
-                    player.currentSurfaceType == PlatformType.ICE -> 0.985f
-                    player.currentSurfaceType == PlatformType.STICKY -> 0.62f
-                    else -> 0.78f
-                }
-                vx *= friction.pow(clampedDt * 60f)
-                if (abs(vx) < 4f) vx = 0f
-            }
-        }
         val maxSpeed = if (player.currentSurfaceType == PlatformType.STICKY && player.onGround) {
             MAX_RUN_SPEED * 0.68f
         } else MAX_RUN_SPEED
+
+        if (abs(rawAxis) > 0.08f) {
+            val targetVx = rawAxis * maxSpeed
+            val deltaV = accel * clampedDt
+            vx = when {
+                vx < targetVx -> min(targetVx, vx + deltaV)
+                vx > targetVx -> max(targetVx, vx - deltaV)
+                else -> targetVx
+            }
+            facingRight = rawAxis > 0f
+        } else {
+            val friction = when {
+                !player.onGround -> 0.94f
+                player.currentSurfaceType == PlatformType.ICE -> 0.985f
+                player.currentSurfaceType == PlatformType.STICKY -> 0.62f
+                else -> 0.78f
+            }
+            vx *= friction.pow(clampedDt * 60f)
+            if (abs(vx) < 4f) vx = 0f
+        }
         vx = vx.coerceIn(-maxSpeed, maxSpeed)
 
         // 4. Jump buffer & Coyote time
@@ -294,9 +320,9 @@ object PhysicsEngine {
             }
         }
 
-        // Resolve Player X against solid obstacles (skipping tilting beam side edges)
+        // Resolve Player X against solid obstacles (skipping sloped surfaces so player climbs them smoothly)
         for (plat in solidObstacles) {
-            if (plat.type == PlatformType.TILTING_BEAM) continue
+            if (plat.isSlopedSurface()) continue
             val pRect = RectBounds(px, py, player.width, player.height)
             val obs = plat.bounds()
             if (pRect.overlaps(obs)) {
@@ -312,25 +338,27 @@ object PhysicsEngine {
 
         // 6. Move Player Y & Resolve Platforms + Boxes
         val wasOnGround = player.onGround
+        val preImpactVy = vy
         py += vy * clampedDt
         var onGround = false
         var surfaceType = PlatformType.SOLID
 
         for (plat in solidObstacles) {
-            if (plat.type == PlatformType.TILTING_BEAM) {
+            if (plat.isSlopedSurface()) {
                 val pCenterX = px + player.width * 0.5f
                 if (pCenterX >= plat.left - 8f && pCenterX <= plat.right + 8f) {
                     val surfY = plat.surfaceYAt(pCenterX)
                     if (!effectiveInverted && vy >= 0f &&
-                        player.y + player.height <= surfY + 20f &&
-                        py + player.height >= surfY - 4f
+                        player.y + player.height <= surfY + 24f &&
+                        py + player.height >= surfY - 6f
                     ) {
                         py = surfY - player.height
                         vy = 0f
                         onGround = true
-                        surfaceType = PlatformType.TILTING_BEAM
-                        // Subtle gravity slope pull on tilted beam
-                        vx += sin(Math.toRadians(plat.tiltAngleDeg.toDouble())).toFloat() * 340f * clampedDt
+                        surfaceType = plat.type
+                        if (plat.type == PlatformType.TILTING_BEAM) {
+                            vx += sin(Math.toRadians(plat.tiltAngleDeg.toDouble())).toFloat() * 340f * clampedDt
+                        }
                     }
                 }
                 continue
@@ -380,8 +408,12 @@ object PhysicsEngine {
             }
         }
 
+        var landingTimer = (player.landingTimer - clampedDt).coerceAtLeast(0f)
         if (!wasOnGround && onGround) {
             events.add(GameEvent.LANDED)
+            if (abs(preImpactVy) > 160f) {
+                landingTimer = 0.11f
+            }
             particles.addAll(
                 createBurst(
                     px + player.width * 0.5f,
@@ -392,13 +424,12 @@ object PhysicsEngine {
             )
         }
 
-        // 7. Update Physics Boxes (Gravity, Magnetism, Friction, Collisions)
+        // 7. Update Physics Boxes (Gravity, Magnetism, Friction, Collisions, Sloped Ramps)
         for (i in mutableBoxes.indices) {
-            var box = mutableBoxes[i]
+            val box = mutableBoxes[i]
             var bvx = box.vx
             var bvy = box.vy
 
-            // Check gravity zones for box
             var boxLowG = false
             var boxInvZone = false
             state.definition.gravityZones.forEach { gz ->
@@ -411,7 +442,6 @@ object PhysicsEngine {
             val bGravSign = if (boxInv) -1f else 1f
             val bGravMag = if (boxLowG) GRAVITY_LOW else GRAVITY_NORMAL
 
-            // Magnetic coil forces on metal crates
             if (box.isMetal) {
                 val bcx = box.x + box.width * 0.5f
                 val bcy = box.y + box.height * 0.5f
@@ -434,14 +464,12 @@ object PhysicsEngine {
 
             bvy = (bvy + bGravMag * bGravSign * clampedDt).coerceIn(-MAX_FALL_SPEED, MAX_FALL_SPEED)
 
-            // Horizontal friction
             var boxSurf = PlatformType.SOLID
             var bx = (box.x + bvx * clampedDt).coerceIn(0f, state.definition.worldWidth - box.width)
             var by = box.y
 
-            // Resolve X against solid obstacles
             for (plat in solidObstacles) {
-                if (plat.type == PlatformType.TILTING_BEAM) continue
+                if (plat.isSlopedSurface()) continue
                 val bRect = RectBounds(bx, by, box.width, box.height)
                 val obs = plat.bounds()
                 if (bRect.overlaps(obs)) {
@@ -455,19 +483,19 @@ object PhysicsEngine {
                 }
             }
 
-            // Resolve Y
             by += bvy * clampedDt
             var boxGrounded = false
             for (plat in solidObstacles) {
-                if (plat.type == PlatformType.TILTING_BEAM) {
+                if (plat.isSlopedSurface()) {
                     val bCenterX = bx + box.width * 0.5f
                     if (bCenterX >= plat.left && bCenterX <= plat.right) {
                         val surfY = plat.surfaceYAt(bCenterX)
-                        if (!boxInv && bvy >= 0f && box.y + box.height <= surfY + 18f && by + box.height >= surfY - 3f) {
+                        if (!boxInv && bvy >= 0f && box.y + box.height <= surfY + 22f && by + box.height >= surfY - 5f) {
                             by = surfY - box.height
                             bvy = 0f
                             boxGrounded = true
-                            bvx += sin(Math.toRadians(plat.tiltAngleDeg.toDouble())).toFloat() * 320f * clampedDt
+                            boxSurf = plat.type
+                            bvx += sin(Math.toRadians(plat.tiltAngleDeg.toDouble())).toFloat() * 340f * clampedDt
                         }
                     }
                     continue
@@ -497,7 +525,6 @@ object PhysicsEngine {
                 }
             }
 
-            // Box-to-box stacking & separation
             for (j in mutableBoxes.indices) {
                 if (i == j) continue
                 val other = mutableBoxes[j]
@@ -521,12 +548,12 @@ object PhysicsEngine {
             val boxFriction = when {
                 !boxGrounded -> 0.96f
                 boxSurf == PlatformType.ICE -> 0.992f
+                boxSurf == PlatformType.DRAWN_INK && abs(bvx) > 5f -> 0.94f
                 else -> 0.80f
             }
             bvx *= boxFriction.pow(clampedDt * 60f)
             if (abs(bvx) < 3f) bvx = 0f
 
-            // Respawn box if it falls out of world
             if (by > state.definition.worldHeight + 180f || by < -240f) {
                 val orig = state.definition.boxes.find { it.id == box.id } ?: box
                 mutableBoxes[i] = orig
@@ -535,7 +562,7 @@ object PhysicsEngine {
             }
         }
 
-        // 8. Interact Button Processing (Terminals, Mirrors, Gravity/Magnet switches, Judo Shrines)
+        // 8. Interact Button Processing (Terminals, Mirrors, Switches, Judo Shrines, Story NPCs / Navi Desk)
         var interactTimer = (player.interactTimer - clampedDt).coerceAtLeast(0f)
         var statusBannerKey = if (state.statusBannerTimer - clampedDt > 0f) state.statusBannerKey else null
         var statusBannerTimer = (state.statusBannerTimer - clampedDt).coerceAtLeast(0f)
@@ -544,16 +571,17 @@ object PhysicsEngine {
         val mutableMirrors = state.mirrors.toMutableList()
         val mutableMagnets = state.magnets.toMutableList()
         var pendingJudo: JudoTrialId? = null
+        var activeDialogueNpc: StoryNpc? = null
+        var requestOpenDesktop = false
         var nearbyPrompt: String? = null
 
         val pCenter = Vec2(px + player.width * 0.5f, py + player.height * 0.5f)
 
-        // Check nearby interactables
         for (i in mutableSwitches.indices) {
             val sw = mutableSwitches[i]
             if (sw.kind == SwitchKind.TERMINAL || sw.kind == SwitchKind.GRAVITY_SWITCH || sw.kind == SwitchKind.MAGNET_SWITCH) {
                 val dist = hypot(pCenter.x - sw.bounds().centerX, pCenter.y - sw.bounds().centerY)
-                if (dist < 72f) {
+                if (dist < 76f) {
                     nearbyPrompt = sw.kind.name
                     if (input.interactJustPressed) {
                         interactTimer = 0.28f
@@ -599,7 +627,7 @@ object PhysicsEngine {
         for (i in mutableMirrors.indices) {
             val m = mutableMirrors[i]
             val dist = hypot(pCenter.x - m.x, pCenter.y - m.y)
-            if (dist < 76f) {
+            if (dist < 82f) {
                 nearbyPrompt = "MIRROR"
                 if (input.interactJustPressed) {
                     interactTimer = 0.25f
@@ -615,11 +643,29 @@ object PhysicsEngine {
         // Judo Shrines via Interact
         for (shrine in state.judoShrines) {
             val dist = hypot(pCenter.x - shrine.x, pCenter.y - (shrine.y - 34f))
-            if (dist < 76f) {
+            if (dist < 80f) {
                 nearbyPrompt = "JUDO"
                 if (input.interactJustPressed) {
                     interactTimer = 0.28f
                     pendingJudo = shrine.trialId
+                }
+            }
+        }
+
+        // Story NPCs & Navi Desk via Interact
+        for (npc in state.definition.npcs) {
+            val dist = hypot(pCenter.x - npc.x, pCenter.y - (npc.y - 34f))
+            if (dist < 80f) {
+                nearbyPrompt = if (npc.opensDesktop) "DESKTOP" else "NPC"
+                if (input.interactJustPressed) {
+                    interactTimer = 0.28f
+                    if (npc.opensDesktop) {
+                        requestOpenDesktop = true
+                        events.add(GameEvent.DESKTOP_OPENED)
+                    } else {
+                        activeDialogueNpc = npc
+                        events.add(GameEvent.NPC_TALKED)
+                    }
                 }
             }
         }
@@ -672,7 +718,6 @@ object PhysicsEngine {
         }
         state.judoShrines.forEach { if (it.completed) activeSignals.add(it.signalId) }
 
-        // Apply active signals to Doors and Hard-Light Platforms
         val updatedDoors = state.doors.map { d ->
             val shouldOpen = d.linkedSignalId in activeSignals
             if (shouldOpen && !d.isOpen) {
@@ -688,8 +733,10 @@ object PhysicsEngine {
         }
 
         // 11. Collectibles & Checkpoints
+        var collectedShardNow = false
         val updatedShards = state.shards.map { s ->
             if (!s.collected && finalPlayerBounds.overlaps(s.bounds())) {
+                collectedShardNow = true
                 events.add(GameEvent.SHARD_COLLECTED)
                 particles.addAll(createBurst(s.x, s.y, 0xFFF6BD60L, 16))
                 s.copy(collected = true)
@@ -730,13 +777,22 @@ object PhysicsEngine {
             particles.addAll(createBurst(state.definition.exit.bounds().centerX, state.definition.exit.bounds().centerY, 0xFF64F0FFL, 24))
         }
 
-        // 14. Animation State
+        // 14. Rich 7-state Animation & Expression State
         val animState = when {
             interactTimer > 0f -> LainAnimState.INTERACTING
             !onGround && ((vy < 0f && !effectiveInverted) || (vy > 0f && effectiveInverted)) -> LainAnimState.JUMPING
             !onGround -> LainAnimState.FALLING
-            abs(vx) > 18f -> LainAnimState.WALKING
+            landingTimer > 0f && abs(vx) < 90f -> LainAnimState.LANDING
+            abs(vx) > 215f -> LainAnimState.RUNNING
+            abs(vx) > 16f -> LainAnimState.WALKING
             else -> LainAnimState.IDLE
+        }
+
+        val expression = when {
+            completed || collectedShardNow -> LainExpression.HAPPY
+            interactTimer > 0f || !onGround || abs(vx) > 220f -> LainExpression.FOCUSED
+            nearbyPrompt != null -> LainExpression.CURIOUS
+            else -> LainExpression.NEUTRAL
         }
 
         val updatedPlayer = player.copy(
@@ -750,8 +806,10 @@ object PhysicsEngine {
             coyoteTimer = coyote,
             jumpBufferTimer = jumpBuf,
             interactTimer = interactTimer,
+            landingTimer = landingTimer,
             animTime = player.animTime + clampedDt,
             animState = animState,
+            expression = expression,
             currentSurfaceType = surfaceType
         )
 
@@ -786,6 +844,8 @@ object PhysicsEngine {
             isCompleted = completed,
             nearbyInteractLabel = nearbyPrompt,
             pendingJudoTrial = pendingJudo,
+            activeDialogueNpc = activeDialogueNpc,
+            requestOpenDesktop = requestOpenDesktop,
             statusBannerKey = statusBannerKey,
             statusBannerTimer = statusBannerTimer,
             events = events
@@ -813,12 +873,11 @@ object PhysicsEngine {
             var dy = emitter.dirY / len
             var lastMirrorId: String? = null
 
-            for (bounce in 0 until 5) { // Up to 5 bounces
+            for (bounce in 0 until 5) {
                 var bestDist = 1400f
                 var hitMirror: MirrorNode? = null
                 var hitSensorId: String? = null
 
-                // Step-march raycast (accurate, fast, deterministic)
                 val stepSize = 8f
                 var dist = stepSize
                 while (dist < bestDist) {
@@ -828,7 +887,6 @@ object PhysicsEngine {
                         bestDist = dist
                         break
                     }
-                    // Check photo sensors
                     val sensor = photoSensors.firstOrNull { s ->
                         val b = s.bounds()
                         rx >= b.left - 10f && rx <= b.right + 10f && ry >= b.top - 10f && ry <= b.bottom + 10f
@@ -838,7 +896,6 @@ object PhysicsEngine {
                         hitSensorId = sensor.id
                         break
                     }
-                    // Check mirrors
                     val mirror = mirrors.firstOrNull { m ->
                         m.id != lastMirrorId && hypot(rx - m.x, ry - m.y) <= m.radius
                     }
@@ -847,7 +904,6 @@ object PhysicsEngine {
                         hitMirror = mirror
                         break
                     }
-                    // Check solid walls (skip hard-light so beams pass through energy bridges)
                     val blocked = obstacles.any { obs ->
                         obs.type != PlatformType.HARD_LIGHT &&
                             rx >= obs.left && rx <= obs.right && ry >= obs.top && ry <= obs.bottom
@@ -868,7 +924,6 @@ object PhysicsEngine {
                     break
                 }
                 if (hitMirror != null) {
-                    // Reflect ray direction cleanly based on mirror angleStep (0..7 => 45 deg increments)
                     val outAngle = hitMirror.angleStep * (PI / 4.0)
                     ox = hitMirror.x
                     oy = hitMirror.y

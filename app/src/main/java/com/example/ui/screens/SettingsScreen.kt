@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Checkroom
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.VolumeUp
@@ -17,10 +18,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.example.data.ControlMode
 import com.example.data.ControlSize
 import com.example.data.GameSettings
+import com.example.data.LainOutfit
 import com.example.i18n.LocalStrings
 import com.example.ui.theme.*
+import kotlin.math.roundToInt
 
 @Composable
 fun SettingsScreen(
@@ -102,6 +106,42 @@ fun SettingsScreen(
                     }
                 }
 
+                // Lain Wardrobe & Outfit Card
+                SettingsCard(title = strings.outfitLabel, icon = Icons.Default.Checkroom) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = strings.autoOutfitByLocation,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Switch(
+                            checked = settings.autoOutfitByLocation,
+                            onCheckedChange = { onUpdateSettings(settings.copy(autoOutfitByLocation = it)) },
+                            modifier = Modifier.testTag("settings_auto_outfit_switch")
+                        )
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        LainOutfit.entries.forEach { outfit ->
+                            val selected = settings.preferredOutfit == outfit
+                            FilterChip(
+                                selected = selected,
+                                onClick = { onUpdateSettings(settings.copy(preferredOutfit = outfit)) },
+                                label = { Text(strings.outfitName(outfit)) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 44.dp)
+                                    .testTag("outfit_chip_${outfit.name.lowercase()}")
+                            )
+                        }
+                    }
+                }
+
                 // Audio Card
                 SettingsCard(title = strings.audioSection, icon = Icons.Default.VolumeUp) {
                     Row(
@@ -150,8 +190,33 @@ fun SettingsScreen(
                     }
                 }
 
-                // Controls & Comfort Card
+                // Controls & Ergonomics Card
                 SettingsCard(title = strings.controlsSection, icon = Icons.Default.Gamepad) {
+                    Text(strings.controlModeLabel, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = settings.controlMode == ControlMode.BUTTONS,
+                            onClick = { onUpdateSettings(settings.copy(controlMode = ControlMode.BUTTONS)) },
+                            label = { Text(strings.modeButtons) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("control_mode_buttons")
+                        )
+                        FilterChip(
+                            selected = settings.controlMode == ControlMode.JOYSTICK,
+                            onClick = { onUpdateSettings(settings.copy(controlMode = ControlMode.JOYSTICK)) },
+                            label = { Text(strings.modeJoystick) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("control_mode_joystick")
+                        )
+                    }
+
                     Text(strings.controlSizeLabel, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -172,6 +237,40 @@ fun SettingsScreen(
                                     .heightIn(min = 48.dp)
                             )
                         }
+                    }
+
+                    // Customizable Horizontal Edge Padding
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(strings.edgePaddingLabel, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                            Text("${settings.controlHorizontalPaddingDp.roundToInt()} dp", style = MaterialTheme.typography.labelSmall, color = NaviCyan)
+                        }
+                        Slider(
+                            value = settings.controlHorizontalPaddingDp,
+                            onValueChange = { onUpdateSettings(settings.copy(controlHorizontalPaddingDp = it)) },
+                            valueRange = 4f..36f,
+                            modifier = Modifier.testTag("settings_edge_padding_slider")
+                        )
+                    }
+
+                    // Customizable Bottom Lift Offset
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(strings.bottomOffsetLabel, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                            Text("${settings.controlBottomOffsetDp.roundToInt()} dp", style = MaterialTheme.typography.labelSmall, color = NaviCyan)
+                        }
+                        Slider(
+                            value = settings.controlBottomOffsetDp,
+                            onValueChange = { onUpdateSettings(settings.copy(controlBottomOffsetDp = it)) },
+                            valueRange = 0f..36f,
+                            modifier = Modifier.testTag("settings_bottom_offset_slider")
+                        )
                     }
 
                     Row(

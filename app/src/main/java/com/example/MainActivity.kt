@@ -29,9 +29,12 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.desktop.LainDesktopScreen
 import com.example.i18n.LocalStrings
 import com.example.i18n.stringsForLanguage
 import com.example.judo.JudoBalanceScreen
+import com.example.physicslab.PhysicsLabScreen
+import com.example.sandbox.PhysicsSandboxScreen
 import com.example.sketch.SketchbookScreen
 import com.example.ui.screens.*
 import com.example.ui.theme.*
@@ -69,7 +72,8 @@ fun LainBeyondRealityApp(viewModel: LainAppViewModel) {
     val screen by viewModel.screen.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val sketches by viewModel.sketches.collectAsStateWithLifecycle()
+    val studioProjects by viewModel.studioProjects.collectAsStateWithLifecycle()
+    val studioAutosave by viewModel.studioAutosaveDraft.collectAsStateWithLifecycle()
     val recentAchievement by viewModel.recentAchievement.collectAsStateWithLifecycle()
 
     val strings = stringsForLanguage(settings.languageCode)
@@ -84,10 +88,14 @@ fun LainBeyondRealityApp(viewModel: LainAppViewModel) {
                 when (val current = screen) {
                     is AppScreen.MainMenu -> MainMenuScreen(
                         progress = progress,
+                        settings = settings,
                         onContinue = { viewModel.continueGame() },
                         onNewGame = { viewModel.startNewGame() },
                         onSketchbook = { viewModel.navigateTo(AppScreen.Sketchbook) },
                         onWorlds = { viewModel.navigateTo(AppScreen.Worlds) },
+                        onDesktop = { viewModel.navigateTo(AppScreen.LainDesktop) },
+                        onSandbox = { viewModel.navigateTo(AppScreen.PhysicsSandbox()) },
+                        onPhysicsLab = { viewModel.navigateTo(AppScreen.PhysicsLab) },
                         onAchievements = { viewModel.navigateTo(AppScreen.Achievements) },
                         onSettings = { viewModel.navigateTo(AppScreen.Settings) }
                     )
@@ -96,6 +104,7 @@ fun LainBeyondRealityApp(viewModel: LainAppViewModel) {
                         progress = progress,
                         onSelectLevel = { levelId -> viewModel.enterLevel(levelId) },
                         onOpenSketchbook = { viewModel.navigateTo(AppScreen.Sketchbook) },
+                        onOpenSandbox = { viewModel.navigateTo(AppScreen.PhysicsSandbox()) },
                         onOpenJudoTrial = { trial -> viewModel.navigateTo(AppScreen.JudoStandalone(trial)) },
                         onBack = { viewModel.navigateTo(AppScreen.MainMenu) }
                     )
@@ -110,15 +119,19 @@ fun LainBeyondRealityApp(viewModel: LainAppViewModel) {
                         onJudoTrialCompleted = { trial, score -> viewModel.onJudoTrialCompleted(trial, score) },
                         onLevelCompleted = { lvl, shards -> viewModel.onLevelCompleted(lvl, shards) },
                         onSelectNextLevel = { nextId -> viewModel.enterLevel(nextId) },
+                        onOpenDesktop = { viewModel.navigateTo(AppScreen.LainDesktop) },
                         onExitToWorlds = { viewModel.navigateTo(AppScreen.Worlds) },
                         onExitToMenu = { viewModel.navigateTo(AppScreen.MainMenu) }
                     )
 
                     is AppScreen.Sketchbook -> SketchbookScreen(
-                        savedSketches = sketches,
-                        onPlaySfx = { viewModel.playSfx(it) },
-                        onSaveSketch = { doc -> viewModel.saveSketch(doc) },
-                        onDeleteSketch = { id -> viewModel.deleteSketch(id) },
+                        strings = strings,
+                        savedProjects = studioProjects,
+                        autosaveDraft = studioAutosave,
+                        onSaveProject = { project -> viewModel.saveStudioProject(project) },
+                        onAutosaveProject = { draft -> viewModel.autosaveStudioProject(draft) },
+                        onDuplicateProject = { src -> viewModel.duplicateStudioProject(src) },
+                        onDeleteProject = { id -> viewModel.deleteStudioProject(id) },
                         onBack = { viewModel.navigateTo(AppScreen.MainMenu) }
                     )
 
@@ -131,6 +144,32 @@ fun LainBeyondRealityApp(viewModel: LainAppViewModel) {
                             viewModel.navigateTo(AppScreen.Worlds)
                         },
                         onExit = { viewModel.navigateTo(AppScreen.Worlds) }
+                    )
+
+                    is AppScreen.LainDesktop -> LainDesktopScreen(
+                        settings = settings,
+                        readMessageIds = progress.readMessageIds,
+                        onMarkMessageRead = { msgId -> viewModel.markMessageRead(msgId) },
+                        onUpdateSettings = { updated -> viewModel.updateSettings(updated) },
+                        onOpenStudio = { viewModel.navigateTo(AppScreen.Sketchbook) },
+                        onOpenSandbox = { viewModel.navigateTo(AppScreen.PhysicsSandbox()) },
+                        onOpenPhysicsLab = { viewModel.navigateTo(AppScreen.PhysicsLab) },
+                        onBack = { viewModel.navigateTo(AppScreen.MainMenu) }
+                    )
+
+                    is AppScreen.PhysicsSandbox -> PhysicsSandboxScreen(
+                        initialPreset = current.preset,
+                        onBack = { viewModel.navigateTo(AppScreen.MainMenu) }
+                    )
+
+                    is AppScreen.PhysicsLab -> PhysicsLabScreen(
+                        isArabic = strings.isArabic,
+                        completedQuizIds = progress.completedLabQuizzes,
+                        onQuizCompleted = { quizId -> viewModel.onLabQuizCompleted(quizId) },
+                        onLaunchSandboxPreset = { preset ->
+                            viewModel.navigateTo(AppScreen.PhysicsSandbox(preset))
+                        },
+                        onBack = { viewModel.navigateTo(AppScreen.MainMenu) }
                     )
 
                     is AppScreen.Achievements -> AchievementsScreen(
