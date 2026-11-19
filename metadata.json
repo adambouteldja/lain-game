@@ -1,0 +1,6 @@
+{
+  "name": "LAIN: Beyond Reality",
+  "description": "A 2D side-scrolling physics puzzle adventure featuring Lain Iwakura, drawing studio, Judo balance challenges, and a mysterious digital atmosphere.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

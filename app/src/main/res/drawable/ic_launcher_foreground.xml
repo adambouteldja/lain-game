@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer Navi Signal Ring -->
+    <path
+        android:pathData="M54,23 A31,31 0 1,1 53.99,23 Z"
+        android:strokeWidth="2.4"
+        android:strokeColor="#64F0FF"
+        android:fillColor="#11192E" />
+    <!-- Digital Scan Accent Arc -->
+    <path
+        android:pathData="M29,43 A26,26 0 0,1 79,43"
+        android:strokeWidth="1.5"
+        android:strokeColor="#3A96B8"
+        android:fillColor="#00000000" />
+    <!-- Lain Asymmetric Hair Silhouette -->
+    <path
+        android:fillColor="#3A1F24"
+        android:pathData="M34,47 C34,34 43,27 54,27 C66,27 74,34 74,48 L74,77 L68,77 L68,58 C64,61 44,61 38,57 L35,59 Z" />
+    <!-- Face Contour -->
+    <path
+        android:fillColor="#F5E1D4"
+        android:pathData="M40,46 C40,39 46,35 54,35 C62,35 67,39 67,47 C67,56 61,63 54,63 C46,63 40,56 40,46 Z" />
+    <!-- Choppy Bangs -->
+    <path
+        android:fillColor="#3A1F24"
+        android:pathData="M39,43 L44,36 L47,43 L51,37 L55,44 L60,37 L64,43 L68,38 L68,45 L39,45 Z" />
+    <!-- Expressive Warm Brown Eyes -->
+    <path
+        android:fillColor="#4E2F24"
+        android:pathData="M45,49 A2.7,2.7 0 1,1 44.99,49 Z" />
+    <path
+        android:fillColor="#4E2F24"
+        android:pathData="M61,49 A2.7,2.7 0 1,1 60.99,49 Z" />
+    <!-- Eye Catchlights -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46,48 A0.9,0.9 0 1,1 45.99,48 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M62,48 A0.9,0.9 0 1,1 61.99,48 Z" />
+    <!-- Beige Collar -->
+    <path
+        android:fillColor="#C6BDB3"
+        android:pathData="M42,66 L54,71 L66,66 L69,76 L39,76 Z" />
+    <!-- Iconic Silver-Ivory X Hairpin on Lain's Left Lock -->
+    <path
+        android:pathData="M67,52 L75,60 M75,52 L67,60"
+        android:strokeWidth="2.6"
+        android:strokeColor="#E8E5DC"
+        android:strokeLineCap="round" />
+    <!-- Wired Cyan Signal Pulse Bar -->
+    <path
+        android:pathData="M34,79 L46,79 L50,74 L55,83 L59,79 L74,79"
+        android:strokeWidth="2.2"
+        android:strokeColor="#64F0FF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
